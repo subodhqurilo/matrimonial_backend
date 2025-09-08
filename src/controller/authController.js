@@ -8,6 +8,36 @@ import User from '../modal/User.js'; // adjust path if needed
 
 const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key";
 
+export const checkKyc = async (req, res, next) => {
+  try {
+    const userId = req.userId; // from JWT
+    const user = await RegisterModel.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    let kycStatus = "pending";
+    if (user.adhaarCard?.isVerified) {
+      kycStatus = "approved";
+    } else if (user.adminApprovel === "reject") {
+      kycStatus = "reject";
+    }
+
+    if (kycStatus !== "approved") {
+      return res.status(403).json({
+        success: false,
+        message: "KYC pending. Please complete Aadhaar verification.",
+        kyc: kycStatus,
+      });
+    }
+
+    next();
+  } catch (error) {
+    res.status(500).json({ success: false, message: "KYC check failed", error: error.message });
+  }
+};
+
+
 /* ------------------- Helper ------------------- */
 const generateUniqueVmId = async () => {
   let isUnique = false;
@@ -78,7 +108,15 @@ export const verifyOtpAndRegister = async (req, res) => {
       email: existingOtp.email,
       mobile,
       isMobileVerified:true,
+      
+
     });
+let kycStatus = "pending";
+    if (newUser.adhaarCard?.isVerified) {
+      kycStatus = "approved";
+    } else if (newUser.adminApprovel === "reject") {
+      kycStatus = "reject";
+    }
 
     const token = jwt.sign({ userId: newUser._id }, JWT_SECRET, { expiresIn: "7d" });
 
@@ -88,6 +126,8 @@ export const verifyOtpAndRegister = async (req, res) => {
       token,
       userId: newUser._id,
       vmId: newUser.id,
+      kyc: kycStatus,
+      
     });
   } catch (error) {
     res.status(500).json({ success: false, message: "Registration failed", error: error.message });

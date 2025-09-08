@@ -1,6 +1,7 @@
 import PartnerPreferenceModel from "../modal/PartnerPreferenceModel.js";
 import RegisterModel from "../modal/register.js";
-
+import cloudinary from '../utils/cloudinary.js'; 
+import fs from 'fs';
 
 function calculateAge(dob) {
   const birthDate = new Date(dob);
@@ -93,9 +94,7 @@ export const getUserFormattedProfile = async (req, res) => {
 
  
     const formattedData = {
-        profileImage:{
-            profileImage:user.profileImage
-        },
+        profileImage: user.profileImage || "https://res.cloudinary.com/dppe3ni5z/image/upload/v1234567890/default-profile.png",
         verifyAadhaar:user.adhaarCard.isVerified,
       basicInfo: {
         postedBy: user.profileFor, 
@@ -174,6 +173,7 @@ export const getUserFormattedProfile = async (req, res) => {
     res.status(500).json({ message: 'Server Error', error: error.message });
   }
 };
+
 
  
 export const updateUserFormattedProfile = async (req, res) => {
@@ -286,48 +286,48 @@ export const updateUserFormattedProfile = async (req, res) => {
  export const updateProfileImagesOnly = async (req, res) => {
   try {
     const userId = req.userId;
+    const file = req.files?.profileImage?.[0];  // ✅ correct
 
-    const profileImage = req.files?.['profileImage']?.[0]?.path;
-
-    if (!profileImage) {
+    if (!file) {
       return res.status(400).json({
         success: false,
-        message: 'No images provided',
+        message: 'No image provided',
       });
     }
 
-    const user = await RegisterModel.findById(userId);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found',
-      });
-    }
-
-    const updateData = {};
-
-    if (profileImage) updateData.profileImage = profileImage;
-
- 
-
-    const updatedUser = await RegisterModel.findByIdAndUpdate(userId, updateData, {
-      new: true,
+    // Upload to Cloudinary
+    const result = await cloudinary.uploader.upload(file.path, {
+      folder: 'profiles',
+      use_filename: true,
+      unique_filename: false,
     });
+
+    // Delete temp file
+    fs.unlinkSync(file.path);
+
+    // Save URL in DB
+    const updatedUser = await RegisterModel.findByIdAndUpdate(
+      userId,
+      { profileImage: result.secure_url },
+      { new: true }
+    );
 
     res.status(200).json({
       success: true,
-      message: 'Profile images updated successfully',
-      data: updatedUser,
+      message: 'Profile image updated successfully',
+      profileImage: result.secure_url,  // ✅ string URL
     });
-
   } catch (error) {
     console.error('[Image Update Error]', error);
     res.status(500).json({
       success: false,
       message: 'Server Error',
+      error: error.message,
     });
   }
 };
+
+
 
 function getZodiacSign(date) {
   if (!date) return 'N/A';

@@ -17,7 +17,7 @@ import bannerRouter from './src/router/bannerRoute.js';
 import profileViewRouter from './src/router/profileViewRoutes.js';
 import mutualRouter from './src/modal/mutualModal.js';
 import similarRouter from './src/router/similarProfileRoutes.js';
-
+import path from 'path';
 const app = express();
 
 app.use(cors());
@@ -43,7 +43,7 @@ app.use('/api/banners',bannerRouter)
 app.use('/api/mutual-matches',mutualRouter)
 app.use('/admin',adminRoute)
 
-
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 
 export default app; 

@@ -1,6 +1,7 @@
 import RegisterModel from "../modal/register.js";
-
-
+import express from 'express';
+import cloudinary from '../utils/cloudinary.js'; 
+import fs from 'fs';
 
 export const updateAdditionalDetails = async (req, res) => {
   try {
@@ -60,46 +61,34 @@ export const getUserById = async (req, res) => {
 export const updateProfileImagesOnly = async (req, res) => {
   try {
     const userId = req.userId;
+    const file = req.files?.['profileImage']?.[0];
 
-    const profileImage = req.files?.['profileImage']?.[0]?.path;
-
-    if (!profileImage) {
-      return res.status(400).json({
-        success: false,
-        message: 'No images provided',
-      });
+    if (!file) {
+      return res.status(400).json({ success: false, message: 'No image uploaded' });
     }
 
-    const user = await RegisterModel.findById(userId);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found',
-      });
-    }
-
-    const updateData = {};
-
-    if (profileImage) updateData.profileImage = profileImage;
-
- 
-
-    const updatedUser = await RegisterModel.findByIdAndUpdate(userId, updateData, {
-      new: true,
-    });
+    // Multer CloudinaryStorage already gives secure URL in file.path
+    const updatedUser = await RegisterModel.findByIdAndUpdate(
+      userId,
+      { profileImage: file.path },
+      { new: true }
+    );
 
     res.status(200).json({
       success: true,
-      message: 'Profile images updated successfully',
-      // data: updatedUser,
+      message: 'Profile image updated successfully',
+      data: { profileImage: updatedUser.profileImage }
     });
-
   } catch (error) {
     console.error('[Image Update Error]', error);
     res.status(500).json({
       success: false,
       message: 'Server Error',
+      error: error.message,
     });
   }
 };
+
+
+
 
