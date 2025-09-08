@@ -15,7 +15,7 @@ import profileRouter from './src/router/profileRoute.js';
 import blockRouter from './src/router/blockRoutes.js';
 import bannerRouter from './src/router/bannerRoute.js';
 import profileViewRouter from './src/router/profileViewRoutes.js';
-import mutualRouter from './src/modal/mutualModal.js';
+import mutualRouter from './src/router/mutualRoute.js';
 import similarRouter from './src/router/similarProfileRoutes.js';
 import path from 'path';
 const app = express();
