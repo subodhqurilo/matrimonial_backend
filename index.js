@@ -20,6 +20,7 @@ const io = new Server(server, {
     origin: process.env.CLIENT_URLS?.split(',') || [
       'http://localhost:3000',
       'http://localhost:3001',
+      'https://matrimonial-backend-chi.vercel.app'
     ],
     methods: ['GET', 'POST'],
     credentials: true,
