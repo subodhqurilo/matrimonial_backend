@@ -1,16 +1,20 @@
 import mongoose from "mongoose";
+import dotenv from "dotenv";
+
+// Load environment variables from .env
+dotenv.config();
 
 const connectDB = async () => {
     try {
-        await mongoose.connect("mongodb+srv://Qurilo:root%401234@admin.dosckv6.mongodb.net/matrimony", {
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
+        await mongoose.connect(process.env.MONGO_URI, {
+            useNewUrlParser: true,
+            useUnifiedTopology: true,
         });
         console.log("MongoDB connected successfully");
     } catch (error) {
         console.error("MongoDB connection failed:", error);
-        process.exit(1); // Exit the process with failure
+        process.exit(1); // Exit the process on failure
     }
-    }
+};
+
 export default connectDB;
-// fsns

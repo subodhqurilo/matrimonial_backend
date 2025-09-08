@@ -1,22 +1,44 @@
-import express from 'express';
-import cors from 'cors';
+import dotenv from 'dotenv';
+import app from './app.js';
+import http from 'http';
+import { Server } from 'socket.io';
+import connectDB from './src/config/db.js';
+import { socketHandler } from './socket.js';
 
-const app = express();
+dotenv.config();
 
-// Enable CORS for HTTP endpoints
-app.use(cors({
-  origin: process.env.CLIENT_URLS?.split(',') || [
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'https://matro-m6d5.vercel.app', // your frontend
-  ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  credentials: true,
-}));
+const PORT = process.env.PORT || 3000;
 
-app.use(express.json());
+// 1) Connect DB
+connectDB();
 
-// Your routes
-app.use('/auth', authRouter);
+// 2) HTTP + Socket server
+const server = http.createServer(app);
 
-export default app;
+const io = new Server(server, {
+  cors: {
+    origin: process.env.CLIENT_URLS?.split(',') || [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      
+    ],
+    methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+    credentials: true,
+  },
+});
+
+// 3) Attach io globally (so controllers can emit)
+app.set('io', io);
+
+// 4) Attach socket handlers
+socketHandler(io);
+
+// 5) Handle errors gracefully
+server.on('error', (err) => {
+  console.error('❌ Server error:', err.message);
+});
+
+// 6) Start server
+server.listen(PORT, () => {
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
+});
