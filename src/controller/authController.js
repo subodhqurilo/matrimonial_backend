@@ -205,21 +205,38 @@ export const registerDetails = async (req, res) => {
     const adhaarFront = req.files?.["adhaarCardFrontImage"]?.[0]?.path;
     const adhaarBack = req.files?.["adhaarCardBackImage"]?.[0]?.path;
 
-    if (Array.isArray(req.body.maritalStatus)) req.body.maritalStatus = req.body.maritalStatus[0];
+    if (Array.isArray(req.body.maritalStatus)) {
+      req.body.maritalStatus = req.body.maritalStatus[0];
+    }
 
-    const updateData = {
-      ...req.body,
-      profileImage,
-      adhaarCard: { frontImage: adhaarFront, backImage: adhaarBack },
-    };
+    // Build update object safely
+    const updateData = { ...req.body };
 
-    const updatedUser = await RegisterModel.findByIdAndUpdate(userId, updateData, { new: true });
+    if (profileImage) updateData.profileImage = profileImage;
+    if (adhaarFront || adhaarBack) {
+      updateData.adhaarCard = {
+        ...(req.body.adhaarCard || {}),
+        frontImage: adhaarFront,
+        backImage: adhaarBack,
+      };
+    }
 
-    res.status(200).json({ success: true, message: "User profile updated", data: updatedUser });
+    const updatedUser = await RegisterModel.findByIdAndUpdate(
+      userId,
+      { $set: updateData },   // ✅ prevents overwrite
+      { new: true }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "User profile updated",
+      data: updatedUser,
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: "Server error", error: error.message });
   }
 };
+
 
 
 

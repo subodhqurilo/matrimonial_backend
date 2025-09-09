@@ -9,16 +9,16 @@ export const generateOTP = () =>
 
 /**
  * Send OTP via Autobysms API or log it in development
- * @param {string} phone - User's phone number
+ * @param {string} mobile - User's phone number
  * @param {string} otp - OTP to send
  * @returns {boolean} true if sent/logged successfully
  */
-export const sendOtpToPhone = async (phone, otp) => {
+export const sendOtpToPhone = async (mobile, otp) => {
   const IS_DEV = process.env.NODE_ENV !== "production";
 
   if (IS_DEV) {
     // 🔹 Development mode: just log OTP
-    console.log(`🔹 [DEV] OTP for ${phone}: ${otp}`);
+    console.log(`🔹 [DEV] OTP for ${mobile}: ${otp}`);
     return true;
   }
 
@@ -26,7 +26,7 @@ export const sendOtpToPhone = async (phone, otp) => {
     const message = encodeURIComponent(`Your OTP is ${otp} SELECTIAL`);
 
     // ✅ Autobysms API URL (update with your actual API key, sender ID, template ID)
-    const apiUrl = `https://sms.autobysms.com/app/smsapi/index.php?key=YOUR_API_KEY&campaign=0&routeid=9&type=text&contacts=${phone}&senderid=SMSSPT&msg=${message}&template_id=YOUR_TEMPLATE_ID`;
+    const apiUrl = `https://sms.autobysms.com/app/smsapi/index.php?key=YOUR_API_KEY&campaign=0&routeid=9&type=text&contacts=${mobile}&senderid=SMSSPT&msg=${message}&template_id=YOUR_TEMPLATE_ID`;
 
     const response = await axios.get(apiUrl);
 
@@ -38,7 +38,7 @@ export const sendOtpToPhone = async (phone, otp) => {
       response.data?.type === "SUCCESS" ||
       (typeof response.data === "string" && response.data.includes("OK"))
     ) {
-      console.log(`✅ OTP sent successfully to ${phone}`);
+      console.log(`✅ OTP sent successfully to ${mobile}`);
       return true;
     } else {
       throw new Error("SMS sending failed: " + JSON.stringify(response.data));
