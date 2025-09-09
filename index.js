@@ -20,7 +20,7 @@ const io = new Server(server, {
     origin: process.env.CLIENT_URLS?.split(',') || [
       'http://localhost:3000',
       'http://localhost:3001',
-      'https://matrimonial-backend-7ahc.onrender.com',
+      'https://matro-br45.vercel.app',
     ],
     methods: ['GET','POST','PUT','DELETE','OPTIONS'],
     credentials: true,
