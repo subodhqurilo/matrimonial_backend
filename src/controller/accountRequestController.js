@@ -97,45 +97,50 @@ export const getReceivedRequests = async (req, res) => {
   try {
     const requests = await AccountRequestModel.find({ receiverId: userId })
       .populate({
-        path: 'requesterId',
+        path: "requesterId",
         select: `
           id _id firstName lastName dateOfBirth height religion caste occupation
           annualIncome highestEducation currentCity city state currentState motherTongue
           gender profileImage updatedAt createdAt designation
-        `
+        `,
       })
       .sort({ createdAt: -1 });
 
     const data = requests
-      .map(req => req.requesterId)
-      .filter(user => user) // Avoid nulls in case of deleted users
-      .map(user => ({
-        id: user.id,
-        _id: user._id,
-        name: `${user.firstName} ${user.lastName}`,
-        age: calculateAge(user.dateOfBirth),
-        height: user.height,
-        caste: user.caste,
-        designation: user.designation,
-        religion: user.religion,
-        profession: user.occupation,
-        salary: user.annualIncome,
-        education: user.highestEducation,
-        location: `${user.city || ''}, ${user.state || ''}`,
-        languages: Array.isArray(user.motherTongue)
-          ? user.motherTongue.join(', ')
-          : user.motherTongue,
-        gender: user.gender,
-        profileImage: user.profileImage,
-        lastSeen: user.updatedAt || user.createdAt,
-      }));
+      .filter(req => req.requesterId) // avoid nulls if user deleted
+      .map(req => {
+        const user = req.requesterId;
+        return {
+          requestId: req._id,     // ✅ keep this for updateAccountRequestStatus
+          status: req.status,     // ✅ so frontend knows pending/accepted/rejected
+          id: user.id,
+          _id: user._id,
+          name: `${user.firstName} ${user.lastName}`,
+          age: calculateAge(user.dateOfBirth),
+          height: user.height,
+          caste: user.caste,
+          designation: user.designation,
+          religion: user.religion,
+          profession: user.occupation,
+          salary: user.annualIncome,
+          education: user.highestEducation,
+          location: `${user.city || ""}, ${user.state || ""}`,
+          languages: Array.isArray(user.motherTongue)
+            ? user.motherTongue.join(", ")
+            : user.motherTongue,
+          gender: user.gender,
+          profileImage: user.profileImage,
+          lastSeen: user.updatedAt || user.createdAt,
+        };
+      });
 
     res.status(200).json({ success: true, data });
   } catch (error) {
-    console.error('Error in getReceivedRequests:', error);
+    console.error("Error in getReceivedRequests:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
 
 
 
@@ -268,18 +273,53 @@ export const getRejectedRequests = async (req, res) => {
 
 export const deleteAccountRequest = async (req, res) => {
   try {
+    const userId = req.userId; // from authenticateUser middleware
     const { requestId } = req.body;
-    if (!requestId) return res.status(400).json({ success: false, message: "RequestId required" });
 
-    // Delete logic here, e.g., MongoDB
+    if (!requestId) {
+      return res.status(400).json({
+        success: false,
+        message: "RequestId required",
+      });
+    }
+
+    // Find the request
+    const request = await AccountRequestModel.findById(requestId);
+
+    if (!request) {
+      return res.status(404).json({
+        success: false,
+        message: "Request not found",
+      });
+    }
+
+    // Only requester or receiver can delete
+    if (
+      request.requesterId.toString() !== userId.toString() &&
+      request.receiverId.toString() !== userId.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to delete this request",
+      });
+    }
+
     await AccountRequestModel.findByIdAndDelete(requestId);
 
-    return res.json({ success: true, message: "Request deleted successfully" });
+    return res.status(200).json({
+      success: true,
+      message: "Request deleted successfully",
+    });
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({ success: false, message: "Server error" });
+    console.error("Error deleting request:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
   }
 };
+
 
 
 
