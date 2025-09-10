@@ -18,7 +18,7 @@ const accountRequestSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'accepted', 'rejected'],
+    enum: ['pending', 'accepted', 'rejected','deleted'],
     default: 'pending',
   },
   createdAt: {
