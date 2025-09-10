@@ -271,54 +271,27 @@ export const getRejectedRequests = async (req, res) => {
   }
 };
 
+
+
 export const deleteAccountRequest = async (req, res) => {
   try {
-    const userId = req.userId; // from authenticateUser middleware
     const { requestId } = req.body;
+    if (!requestId) return res.status(400).json({ success: false, message: "Request ID is required" });
 
-    if (!requestId) {
-      return res.status(400).json({
-        success: false,
-        message: "RequestId required",
-      });
-    }
-
-    // Find the request
     const request = await AccountRequestModel.findById(requestId);
+    if (!request) return res.status(404).json({ success: false, message: "Request not found" });
 
-    if (!request) {
-      return res.status(404).json({
-        success: false,
-        message: "Request not found",
-      });
-    }
+    // Soft delete: status update instead of permanent deletion
+    request.status = "deleted";
+    await request.save();
 
-    // Only requester or receiver can delete
-    if (
-      request.requesterId.toString() !== userId.toString() &&
-      request.receiverId.toString() !== userId.toString()
-    ) {
-      return res.status(403).json({
-        success: false,
-        message: "Not authorized to delete this request",
-      });
-    }
-
-    await AccountRequestModel.findByIdAndDelete(requestId);
-
-    return res.status(200).json({
-      success: true,
-      message: "Request deleted successfully",
-    });
+    res.status(200).json({ success: true, message: "Request deleted successfully" });
   } catch (error) {
-    console.error("Error deleting request:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-      error: error.message,
-    });
+    console.error(error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };
+
 
 
 
@@ -385,5 +358,48 @@ export const getRequestsAcceptedByOthers = async (req, res) => {
   } catch (error) {
     console.error('Error fetching accepted requests by others:', error);
     res.status(500).json({ success: false, error: error.message });
+  }
+};
+// controllers/accountRequestController.js
+export const getDeletedRequests = async (req, res) => {
+  try {
+    const userId = req.userId;
+
+    // Find deleted requests where current user was either sender or receiver
+    const requests = await AccountRequestModel.find({
+      $or: [{ requesterId: userId }, { receiverId: userId }],
+      status: "deleted",   // 👈 add deleted status
+    })
+      .populate({
+        path: "requesterId receiverId",
+        select: "id _id firstName lastName profileImage dateOfBirth caste designation",
+      })
+      .sort({ createdAt: -1 });
+
+    const formatted = requests.map(req => {
+      const otherUser =
+        req.requesterId._id.toString() === userId.toString()
+          ? req.receiverId
+          : req.requesterId;
+
+      return {
+        requestId: req._id,
+        status: req.status,
+        createdAt: req.createdAt,
+        user: {
+          _id: otherUser._id,
+          id: otherUser.id,
+          name: `${otherUser.firstName} ${otherUser.lastName}`,
+          profileImage: otherUser.profileImage,
+          caste: otherUser.caste,
+          designation: otherUser.designation,
+        },
+      };
+    });
+
+    res.status(200).json({ success: true, requests: formatted });
+  } catch (error) {
+    console.error("Error fetching deleted requests:", error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
