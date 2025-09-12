@@ -276,21 +276,23 @@ export const getRejectedRequests = async (req, res) => {
 export const deleteAccountRequest = async (req, res) => {
   try {
     const { requestId } = req.body;
-    if (!requestId) return res.status(400).json({ success: false, message: "Request ID is required" });
+    if (!requestId)
+      return res.status(400).json({ success: false, message: "Request ID is required" });
 
     const request = await AccountRequestModel.findById(requestId);
-    if (!request) return res.status(404).json({ success: false, message: "Request not found" });
+    if (!request)
+      return res.status(404).json({ success: false, message: "Request not found" });
 
-    // Soft delete: status update instead of permanent deletion
-    request.status = "deleted";
+    request.status = "deleted"; // ✅ अब ये valid होगा
     await request.save();
 
-    res.status(200).json({ success: true, message: "Request deleted successfully" });
+    res.status(200).json({ success: true, message: "Request deleted successfully", request });
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
+
 
 
 
