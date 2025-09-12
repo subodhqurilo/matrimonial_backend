@@ -68,10 +68,13 @@ export const updateAccountRequestStatus = async (req, res) => {
   }
 
   try {
-    const request = await AccountRequestModel.findOne({
-      _id: requestId,
-      receiverId: userId,
-    });
+    // Only pending requests
+const requests = await AccountRequestModel.find({
+  receiverId: userId,
+  status: "pending",   // ✅ filter by pending
+});
+
+
 
     if (!request) {
       return res.status(404).json({ message: 'Request not found or unauthorized' });
