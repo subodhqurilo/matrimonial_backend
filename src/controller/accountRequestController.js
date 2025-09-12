@@ -167,7 +167,10 @@ export const getSentRequests = async (req, res) => {
   const userId = req.userId;
 
   try {
-    const requests = await AccountRequestModel.find({ requesterId: userId })
+    const requests = await AccountRequestModel.find({ 
+      requesterId: userId,
+      status: { $ne: "deleted" } // <-- exclude deleted requests
+    })
       .populate({
         path: "receiverId",
         select: "id _id firstName lastName dateOfBirth height religion caste occupation annualIncome highestEducation city state motherTongue gender profileImage designation updatedAt createdAt",
@@ -186,6 +189,7 @@ export const getSentRequests = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
+
 
 // Get rejected requests
 export const getRejectedRequests = async (req, res) => {

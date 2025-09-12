@@ -24,6 +24,7 @@ accountRouter.get('/getSendRequest', authenticateUser, getSentRequests);
 accountRouter.get('/accepted-by-me', authenticateUser, getRequestsAcceptedByMe);
 accountRouter.get('/accepted-by-others', authenticateUser, getRequestsAcceptedByOthers);
 accountRouter.get('/deleteGet', authenticateUser, getRejectedRequests);
+accountRouter.get('/deleteGet', authenticateUser, getRejectedRequests);
 
 // ✅ Add DELETE route for frontend
 
