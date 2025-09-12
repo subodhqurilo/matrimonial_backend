@@ -36,22 +36,31 @@ export const requestAccount = async (req, res) => {
 };
 
 // Update request status
+
+
 export const updateAccountRequestStatus = async (req, res) => {
   const userId = req.userId;
   const { requestId, status } = req.body;
 
+  // Only allow accepted or rejected
   if (!["accepted", "rejected"].includes(status))
     return res.status(400).json({ message: "Invalid status" });
 
   try {
+    // ✅ Allow updating pending or accepted requests
     const request = await AccountRequestModel.findOne({
       _id: requestId,
       $or: [{ receiverId: userId }, { requesterId: userId }],
-      status: "pending",
+      status: { $in: ["pending", "accepted"] }, 
     });
 
     if (!request)
       return res.status(404).json({ message: "Request not found or unauthorized" });
+
+    // Prevent accepting already accepted requests again
+    if (status === "accepted" && request.status === "accepted") {
+      return res.status(400).json({ message: "Request already accepted" });
+    }
 
     request.status = status;
     await request.save();
@@ -61,6 +70,7 @@ export const updateAccountRequestStatus = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
+
 
 // Get received requests (pending)
 export const getReceivedRequests = async (req, res) => {
