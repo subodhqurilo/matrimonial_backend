@@ -1,84 +1,57 @@
 import { AccountRequestModel } from "../modal/accountRequestModel.js";
 
+// Utility: calculate age
 export const calculateAge = dob => {
   const birthDate = new Date(dob);
   const today = new Date();
   let age = today.getFullYear() - birthDate.getFullYear();
   const m = today.getMonth() - birthDate.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-    age--;
-  }
+  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
   return age;
 };
 
-
-
+// Send a request
 export const requestAccount = async (req, res) => {
-  const requesterId = req.userId; 
+  const requesterId = req.userId;
   const { receiverId } = req.body;
 
-  if (!requesterId || !receiverId) {
+  if (!requesterId || !receiverId)
     return res.status(400).json({ message: 'Both requester and receiver are required' });
-  }
 
-  if (requesterId.toString() === receiverId.toString()) {
+  if (requesterId === receiverId)
     return res.status(400).json({ message: 'Cannot send request to yourself' });
-  }
 
   try {
-    const existingRequest = await AccountRequestModel.findOne({
-      requesterId,
-      receiverId,
-    });
-
-    if (existingRequest) {
+    const existingRequest = await AccountRequestModel.findOne({ requesterId, receiverId });
+    if (existingRequest)
       return res.status(400).json({ message: 'Request already exists' });
-    }
 
-  
-    const request = new AccountRequestModel({
-      userId: requesterId, // optional if userId used for other tracking
-      requesterId,
-      receiverId,
-    });
-
+    const request = new AccountRequestModel({ requesterId, receiverId });
     await request.save();
 
-    res.status(201).json({
-      success: true,
-      message: 'Request sent successfully',
-      request,
-    });
+    res.status(201).json({ success: true, message: 'Request sent successfully', request });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message,
-    });
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };
 
-
+// Update request status
 export const updateAccountRequestStatus = async (req, res) => {
-  const userId = req.userId; // should be receiver
+  const userId = req.userId;
   const { requestId, status } = req.body;
 
-  if (!['accepted', 'rejected'].includes(status)) {
-    return res.status(400).json({ message: 'Invalid status' });
-  }
+  if (!["accepted", "rejected"].includes(status))
+    return res.status(400).json({ message: "Invalid status" });
 
   try {
-    // Only pending requests
-const requests = await AccountRequestModel.find({
-  receiverId: userId,
-  status: "pending",   // ✅ filter by pending
-});
+    const request = await AccountRequestModel.findOne({
+      _id: requestId,
+      $or: [{ receiverId: userId }, { requesterId: userId }],
+      status: "pending",
+    });
 
-
-
-    if (!request) {
-      return res.status(404).json({ message: 'Request not found or unauthorized' });
-    }
+    if (!request)
+      return res.status(404).json({ message: "Request not found or unauthorized" });
 
     request.status = status;
     await request.save();
@@ -89,33 +62,25 @@ const requests = await AccountRequestModel.find({
   }
 };
 
-
-
-
-
-
+// Get received requests (pending)
 export const getReceivedRequests = async (req, res) => {
   const userId = req.userId;
 
   try {
-    const requests = await AccountRequestModel.find({ receiverId: userId })
+    const requests = await AccountRequestModel.find({ receiverId: userId, status: "pending" })
       .populate({
         path: "requesterId",
-        select: `
-          id _id firstName lastName dateOfBirth height religion caste occupation
-          annualIncome highestEducation currentCity city state currentState motherTongue
-          gender profileImage updatedAt createdAt designation
-        `,
+        select: "id _id firstName lastName dateOfBirth height religion caste occupation annualIncome highestEducation city state motherTongue gender profileImage designation updatedAt createdAt",
       })
       .sort({ createdAt: -1 });
 
     const data = requests
-      .filter(req => req.requesterId) // avoid nulls if user deleted
-      .map(req => {
-        const user = req.requesterId;
+      .filter(r => r.requesterId)
+      .map(r => {
+        const user = r.requesterId;
         return {
-          requestId: req._id,     // ✅ keep this for updateAccountRequestStatus
-          status: req.status,     // ✅ so frontend knows pending/accepted/rejected
+          requestId: r._id,
+          status: r.status,
           id: user.id,
           _id: user._id,
           name: `${user.firstName} ${user.lastName}`,
@@ -128,9 +93,7 @@ export const getReceivedRequests = async (req, res) => {
           salary: user.annualIncome,
           education: user.highestEducation,
           location: `${user.city || ""}, ${user.state || ""}`,
-          languages: Array.isArray(user.motherTongue)
-            ? user.motherTongue.join(", ")
-            : user.motherTongue,
+          languages: Array.isArray(user.motherTongue) ? user.motherTongue.join(", ") : user.motherTongue,
           gender: user.gender,
           profileImage: user.profileImage,
           lastSeen: user.updatedAt || user.createdAt,
@@ -139,241 +102,184 @@ export const getReceivedRequests = async (req, res) => {
 
     res.status(200).json({ success: true, data });
   } catch (error) {
-    console.error("Error in getReceivedRequests:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-
-
-
-
-
-
+// Get received requests by status
 export const getReceivedRequestsByStatus = async (req, res) => {
   const userId = req.userId;
   const { status } = req.query;
-
-  const validStatuses = ['pending', 'accepted', 'rejected'];
-  if (status && !validStatuses.includes(status)) {
-    return res.status(400).json({ message: 'Invalid status filter' });
-  }
+  const validStatuses = ["pending", "accepted", "rejected"];
+  if (status && !validStatuses.includes(status))
+    return res.status(400).json({ message: "Invalid status filter" });
 
   try {
     const filter = { receiverId: userId };
-    if (status) {
-      filter.status = status;
-    }
+    if (status) filter.status = status;
 
     const requests = await AccountRequestModel.find(filter)
       .populate({
-        path: 'requesterId',
-        select: `
-          firstName lastName phoneNumber profileImage 
-          partnerPreference.setAssProfileImage height caste designation 
-          annualIncome currentCity motherTongue highestEducation dateOfBirth id
-        `
+        path: "requesterId",
+        select: "firstName lastName phoneNumber profileImage partnerPreference.setAssProfileImage height caste designation annualIncome currentCity motherTongue highestEducation dateOfBirth id",
       })
       .sort({ createdAt: -1 });
 
-    // Format response
-    const formatted = requests.map((request) => {
-      const user = request.requesterId;
-      return {
-        requestId: request._id,
-        status: request.status,
-        createdAt: request.createdAt,
-        user: {
-          _id: user._id,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          id: user.id,
-          height: user.height,
-          caste: user.caste,
-          designation: user.designation,
-          annualIncome: user.annualIncome,
-          currentCity: user.currentCity,
-          motherTongue: user.motherTongue,
-          highestEducation: user.highestEducation,
-          profileImage: user.profileImage || user?.partnerPreference?.setAssProfileImage || null,
-          dateOfBirth: user.dateOfBirth,
-        }
-      };
-    });
+    const formatted = requests.map(r => ({
+      requestId: r._id,
+      status: r.status,
+      createdAt: r.createdAt,
+      user: {
+        _id: r.requesterId._id,
+        firstName: r.requesterId.firstName,
+        lastName: r.requesterId.lastName,
+        id: r.requesterId.id,
+        height: r.requesterId.height,
+        caste: r.requesterId.caste,
+        designation: r.requesterId.designation,
+        annualIncome: r.requesterId.annualIncome,
+        currentCity: r.requesterId.currentCity,
+        motherTongue: r.requesterId.motherTongue,
+        highestEducation: r.requesterId.highestEducation,
+        profileImage: r.requesterId.profileImage || r.requesterId?.partnerPreference?.setAssProfileImage || null,
+        dateOfBirth: r.requesterId.dateOfBirth,
+      }
+    }));
 
     res.status(200).json({ success: true, requests: formatted });
   } catch (error) {
-    console.error('Error in getReceivedRequestsByStatus:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 };
 
-
-
-
+// Get sent requests
 export const getSentRequests = async (req, res) => {
   const userId = req.userId;
-  console.log("User ID:", userId);
+
   try {
     const requests = await AccountRequestModel.find({ requesterId: userId })
       .populate({
-        path: 'receiverId',
-        select: `
-          id _id firstName lastName dateOfBirth height religion caste occupation
-          annualIncome highestEducation currentCity city state currentState motherTongue
-          gender profileImage updatedAt createdAt designation
-        `
+        path: "receiverId",
+        select: "id _id firstName lastName dateOfBirth height religion caste occupation annualIncome highestEducation city state motherTongue gender profileImage designation updatedAt createdAt",
       })
       .sort({ createdAt: -1 });
 
-    const formatted = requests.map((req) => ({
-      requestId: req._id,
-      status: req.status,
-      createdAt: req.createdAt,
-      user: req.receiverId
+    const formatted = requests.map(r => ({
+      requestId: r._id,
+      status: r.status,
+      createdAt: r.createdAt,
+      user: r.receiverId,
     }));
 
     res.status(200).json({ success: true, requests: formatted });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
-
-
-
+// Get rejected requests
 export const getRejectedRequests = async (req, res) => {
   const userId = req.userId;
 
   try {
-    const requests = await AccountRequestModel.find({
-      receiverId: userId,
-      status: 'rejected',
-    })
+    const requests = await AccountRequestModel.find({ receiverId: userId, status: "rejected" })
       .populate({
-        path: 'requesterId',
-        select: `
-          id _id firstName lastName dateOfBirth height religion caste occupation
-          annualIncome highestEducation currentCity city state currentState motherTongue
-          gender profileImage updatedAt createdAt designation
-        `
+        path: "requesterId",
+        select: "id _id firstName lastName dateOfBirth height religion caste occupation annualIncome highestEducation currentCity city state motherTongue gender profileImage updatedAt createdAt designation",
       })
       .sort({ createdAt: -1 });
 
-    const formatted = requests.map((request) => ({
-      requestId: request._id,
-      status: request.status,
-      createdAt: request.createdAt,
-      user: request.requesterId
+    const formatted = requests.map(r => ({
+      requestId: r._id,
+      status: r.status,
+      createdAt: r.createdAt,
+      user: r.requesterId,
     }));
 
     res.status(200).json({ success: true, requests: formatted });
   } catch (error) {
-    console.error('Error fetching rejected requests:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 };
 
-
-
+// Delete a request (soft delete)
 export const deleteAccountRequest = async (req, res) => {
+  const { requestId } = req.body;
+  if (!requestId) return res.status(400).json({ success: false, message: "Request ID is required" });
+
   try {
-    const { requestId } = req.body;
-    if (!requestId)
-      return res.status(400).json({ success: false, message: "Request ID is required" });
-
     const request = await AccountRequestModel.findById(requestId);
-    if (!request)
-      return res.status(404).json({ success: false, message: "Request not found" });
+    if (!request) return res.status(404).json({ success: false, message: "Request not found" });
 
-    request.status = "deleted"; // ✅ अब ये valid होगा
+    request.status = "deleted";
     await request.save();
 
     res.status(200).json({ success: true, message: "Request deleted successfully", request });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, message: "Server error" });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-
-
-
-
-
-
+// Get requests accepted by me
 export const getRequestsAcceptedByMe = async (req, res) => {
   const userId = req.userId;
-  console.log("User ID:", userId);
 
   try {
-    const requests = await AccountRequestModel.find({
-      receiverId: userId,
-      status: 'accepted',
-    }).populate({
-      path: 'requesterId',
-      select: `
-        id _id firstName lastName dateOfBirth height religion caste occupation
-        annualIncome highestEducation currentCity city state currentState motherTongue
-        gender profileImage updatedAt createdAt designation
-      `,
-    }).sort({ createdAt: -1 });
+    const requests = await AccountRequestModel.find({ receiverId: userId, status: "accepted" })
+      .populate({
+        path: "requesterId",
+        select: "id _id firstName lastName dateOfBirth height religion caste occupation annualIncome highestEducation currentCity city state motherTongue gender profileImage updatedAt createdAt designation",
+      })
+      .sort({ createdAt: -1 });
 
-    const formatted = requests.map((request) => ({
-      requestId: request._id,
-      status: request.status,
-      createdAt: request.createdAt,
-      user: request.requesterId,
-      acceptedBy: 'me'
+    const formatted = requests.map(r => ({
+      requestId: r._id,
+      status: r.status,
+      createdAt: r.createdAt,
+      user: r.requesterId,
+      acceptedBy: "me",
     }));
 
     res.status(200).json({ success: true, requests: formatted });
   } catch (error) {
-    console.error('Error fetching accepted requests by me:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 };
 
-
+// Get requests accepted by others
 export const getRequestsAcceptedByOthers = async (req, res) => {
   const userId = req.userId;
 
   try {
-    const requests = await AccountRequestModel.find({
-      requesterId: userId,
-      status: 'accepted',
-    }).populate({
-      path: 'receiverId',
-      select: `
-        id _id firstName lastName dateOfBirth height religion caste occupation
-        annualIncome highestEducation currentCity city state currentState motherTongue
-        gender profileImage updatedAt createdAt designation
-      `,
-    }).sort({ createdAt: -1 });
+    const requests = await AccountRequestModel.find({ requesterId: userId, status: "accepted" })
+      .populate({
+        path: "receiverId",
+        select: "id _id firstName lastName dateOfBirth height religion caste occupation annualIncome highestEducation currentCity city state motherTongue gender profileImage updatedAt createdAt designation",
+      })
+      .sort({ createdAt: -1 });
 
-    const formatted = requests.map((request) => ({
-      requestId: request._id,
-      status: request.status,
-      createdAt: request.createdAt,
-      user: request.receiverId,
-      acceptedBy: 'other'
+    const formatted = requests.map(r => ({
+      requestId: r._id,
+      status: r.status,
+      createdAt: r.createdAt,
+      user: r.receiverId,
+      acceptedBy: "other",
     }));
 
     res.status(200).json({ success: true, requests: formatted });
   } catch (error) {
-    console.error('Error fetching accepted requests by others:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 };
-// controllers/accountRequestController.js
-export const getDeletedRequests = async (req, res) => {
-  try {
-    const userId = req.userId;
 
-    // Find deleted requests where current user was either sender or receiver
+// Get deleted requests
+export const getDeletedRequests = async (req, res) => {
+  const userId = req.userId;
+
+  try {
     const requests = await AccountRequestModel.find({
       $or: [{ requesterId: userId }, { receiverId: userId }],
-      status: "deleted",   // 👈 add deleted status
+      status: "deleted",
     })
       .populate({
         path: "requesterId receiverId",
@@ -381,16 +287,12 @@ export const getDeletedRequests = async (req, res) => {
       })
       .sort({ createdAt: -1 });
 
-    const formatted = requests.map(req => {
-      const otherUser =
-        req.requesterId._id.toString() === userId.toString()
-          ? req.receiverId
-          : req.requesterId;
-
+    const formatted = requests.map(r => {
+      const otherUser = r.requesterId._id.toString() === userId.toString() ? r.receiverId : r.requesterId;
       return {
-        requestId: req._id,
-        status: req.status,
-        createdAt: req.createdAt,
+        requestId: r._id,
+        status: r.status,
+        createdAt: r.createdAt,
         user: {
           _id: otherUser._id,
           id: otherUser.id,
@@ -404,7 +306,6 @@ export const getDeletedRequests = async (req, res) => {
 
     res.status(200).json({ success: true, requests: formatted });
   } catch (error) {
-    console.error("Error fetching deleted requests:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
