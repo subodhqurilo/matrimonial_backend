@@ -216,39 +216,48 @@ export const getAllUsersILiked = async (req, res) => {
 
     const likes = await LikeModel.find({ senderId: userId })
       .populate({
-        path: 'receiverId',
-        select: `fullName lastName userName dateOfBirth height religion occupation 
-        annualIncome highestEducation city state motherTongue 
-        gender updatedAt createdAt`
+        path: "receiverId",
+        select: `firstName lastName userName dateOfBirth height religion occupation 
+                 annualIncome highestEducation city state motherTongue 
+                 gender updatedAt createdAt profileImage`
       });
 
-    const profiles = likes.map(like => {
+    const profiles = likes.map((like) => {
       const user = like.receiverId;
+      if (!user) return null; // safeguard if populate fails
 
       return {
-        name: `${user.fullName} ${user.lastName}`,
-        age: calculateAge(user.dateOfBirth),
-        height: user.height,
-        religion: user.religion,
-        profession: user.occupation,
-        salary: user.annualIncome,
-        education: user.highestEducation,
-        location: `${user.city}, ${user.state}`,
-        languages: user.motherTongue,
-        gender: user.gender,
-        lastSeen: user.updatedAt || user.createdAt,
+        name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+        age: user.dateOfBirth ? calculateAge(user.dateOfBirth) : null,
+        height: user.height || null,
+        religion: user.religion || null,
+        profession: user.occupation || null,
+        salary: user.annualIncome || null,
+        education: user.highestEducation || null,
+        location:
+          user.city && user.state
+            ? `${user.city}, ${user.state}`
+            : null,
+        languages: user.motherTongue || null,
+        gender: user.gender || null,
+        profileImage: user.profileImage || null,
+        lastSeen: user.updatedAt || user.createdAt || null,
         likeStatus: like.status,
       };
-    });
+    }).filter(Boolean); // remove null entries
 
     res.status(200).json({
       success: true,
       likedUsers: profiles,
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Internal server error" });
+    res.status(500).json({ success: false, message: "Internal server error", error: error.message });
   }
 };
+
+// helper function
+
+
 
 
 

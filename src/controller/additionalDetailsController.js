@@ -15,7 +15,7 @@ export const updateAdditionalDetails = async (req, res) => {
       {
         $set: {
           ...updates,
-          horoscope: updates.horoscope || {},
+        //  horoscope: updates.horoscope || {},
         }
       },
       { new: true }

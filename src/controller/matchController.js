@@ -29,15 +29,21 @@ export const createMatch = async (req, res) => {
   }
 };
 
+// ✅ Get all match testimonials
 export const getAllMatches = async (req, res) => {
   try {
-    const matches = await MatchModel.find().sort({ createdAt: -1 });
+    const matches = await MatchModel.find().sort({ createdAt: -1 }); 
 
     res.status(200).json({
       success: true,
+      count: matches.length,  // total number of matches
       data: matches,
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Internal server error', 
+      error: error.message 
+    });
   }
-}
+};

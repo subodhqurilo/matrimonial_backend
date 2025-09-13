@@ -265,9 +265,13 @@ export const getRequestsAcceptedByOthers = async (req, res) => {
   const userId = req.userId;
 
   try {
-    const requests = await AccountRequestModel.find({ requesterId: userId, status: "accepted" })
+    // ✅ "accepted by others" means: YOU are the receiver, others requested you
+    const requests = await AccountRequestModel.find({ 
+      receiverId: userId, 
+      status: "accepted" 
+    })
       .populate({
-        path: "receiverId",
+        path: "requesterId",   // ✅ the other person (who sent request to you)
         select: "id _id firstName lastName dateOfBirth height religion caste occupation annualIncome highestEducation currentCity city state motherTongue gender profileImage updatedAt createdAt designation",
       })
       .sort({ createdAt: -1 });
@@ -276,7 +280,7 @@ export const getRequestsAcceptedByOthers = async (req, res) => {
       requestId: r._id,
       status: r.status,
       createdAt: r.createdAt,
-      user: r.receiverId,
+      user: r.requesterId,   // ✅ now contains the other user's details
       acceptedBy: "other",
     }));
 
@@ -285,6 +289,7 @@ export const getRequestsAcceptedByOthers = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
+
 
 // Get deleted requests
 export const getDeletedRequests = async (req, res) => {
