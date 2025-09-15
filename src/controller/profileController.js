@@ -84,6 +84,8 @@ export const getUserPublicProfileById = async (req, res) => {
 
 export const getUserFormattedProfile = async (req, res) => {
   try {
+    console.log("📩 Incoming Update Body:", JSON.stringify(req.body, null, 2));
+    console.log("👤 User ID:", req.userId);
     const id = req.userId
     console.log(id)
     const user = await RegisterModel.findOne({ _id:id });
@@ -92,10 +94,12 @@ export const getUserFormattedProfile = async (req, res) => {
     // const partnerPreference = await PartnerPreferenceModel.findOne({ userId: user._id });
 
 
+
  
     const formattedData = {
         profileImage: user.profileImage || "https://res.cloudinary.com/dppe3ni5z/image/upload/v1234567890/default-profile.png",
-        verifyAadhaar:user.adhaarCard.isVerified,
+        verifyAadhaar: user.adhaarCard?.isVerified || false,
+
       basicInfo: {
         postedBy: user.profileFor, 
         firstName: user.firstName,
@@ -271,12 +275,23 @@ export const updateUserFormattedProfile = async (req, res) => {
       user.vacationDestination = lifestyleHobbies.vacationDestination;
     }
 
-    // ✅ About Me
-    user.aboutYourself = aboutMe;
+    
+    if (aboutMe !== undefined) {
+  user.aboutYourself = aboutMe;
+}
+
+
 
     await user.save();
 
-    res.status(200).json({ success: true, message: 'Profile updated successfully' });
+res.status(200).json({
+  success: true,
+  message: 'Profile updated successfully',
+  data: {
+    aboutMe: user.aboutYourself, // ✅ return updated aboutMe
+  },
+});
+
   } catch (error) {
     console.error('Update Error:', error);
     res.status(500).json({ success: false, message: 'Server Error', error: error.message });

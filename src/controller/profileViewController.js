@@ -40,28 +40,25 @@ export const saveProfileView = async (req, res) => {
     }
 
     const existingView = await ProfileViewModel.findOne({
-      'profileViewedBy.userId': viewedUserId,
-      'profileIViewed.userId': userId,
+      profileViewedBy: { $elemMatch: { userId: viewedUserId } },
+      profileIViewed: { $elemMatch: { userId: userId } }
     });
 
     if (existingView) {
-      existingView.profileViewedBy.viewedAt = new Date();
-      existingView.profileIViewed.viewedAt = new Date();
+      existingView.profileViewedBy.forEach(p => {
+        if (p.userId.toString() === viewedUserId) p.viewedAt = new Date();
+      });
+      existingView.profileIViewed.forEach(p => {
+        if (p.userId.toString() === userId) p.viewedAt = new Date();
+      });
       await existingView.save();
-
       return res.status(200).json({ success: true, message: 'Profile view updated.' });
     }
 
     const newView = new ProfileViewModel({
       userId,
-      profileViewedBy: {
-        userId: viewedUserId,
-        viewedAt: new Date(),
-      },
-      profileIViewed: {
-        userId,
-        viewedAt: new Date(),
-      },
+      profileViewedBy: [{ userId: viewedUserId, viewedAt: new Date() }],
+      profileIViewed: [{ userId, viewedAt: new Date() }],
     });
 
     await newView.save();
@@ -73,20 +70,18 @@ export const saveProfileView = async (req, res) => {
   }
 };
 
+
 // ✅ Get Profiles I Viewed
 export const getProfilesIViewed = async (req, res) => {
   const userId = req.userId;
-  console.log("Fetching profiles I viewed for userId:", userId);
 
   try {
-    const views = await ProfileViewModel.find({ userId: userId })
+    const views = await ProfileViewModel.find({ userId })
       .populate('profileIViewed.userId');
 
-    console.log("Fetched views:", views);
-
     const formatted = views
-      .filter(v => v.profileIViewed?.userId)
-      .map(v => formatUser(v.profileIViewed.userId));
+      .flatMap(v => v.profileIViewed) // flatten all viewed profiles
+      .map(v => formatUser(v.userId));
 
     res.status(200).json({ success: true, data: formatted });
 
@@ -97,20 +92,18 @@ export const getProfilesIViewed = async (req, res) => {
 };
 
 
+
 // ✅ Get Profiles Who Viewed Me
 export const getProfilesWhoViewedMe = async (req, res) => {
   const userId = req.userId;
-  console.log("Fetching profiles that viewed userId:", userId);
 
   try {
-    const views = await ProfileViewModel.find({ userId: userId })
+    const views = await ProfileViewModel.find({ 'profileIViewed.userId': userId })
       .populate('profileViewedBy.userId');
 
-    console.log("Fetched views:", views);
-
     const formatted = views
-      .filter(v => v.profileViewedBy?.userId)
-      .map(v => formatUser(v.profileViewedBy.userId));
+      .flatMap(v => v.profileViewedBy) // flatten all profiles who viewed me
+      .map(v => formatUser(v.userId));
 
     res.status(200).json({ success: true, data: formatted });
 
@@ -119,6 +112,7 @@ export const getProfilesWhoViewedMe = async (req, res) => {
     res.status(500).json({ success: false, message: 'Error fetching viewers', error });
   }
 };
+
 
 
 // ✅ Combined Summary (I viewed + Who viewed me)

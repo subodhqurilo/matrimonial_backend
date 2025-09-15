@@ -90,28 +90,29 @@ export const socketHandler = (io) => {
 
     // ✅ Mark messages as read (for read receipts)
     socket.on("mark-as-read", async ({ from, to }) => {
-      try {
-        if (!from || !to) return;
+  try {
+    if (!from || !to) return;
 
-        const conversationId = [String(from), String(to)].sort().join("_");
+    const conversationId = [String(from), String(to)].sort().join("_");
 
-        await messageModel.updateMany(
-          {
-            conversationId,
-            receiverId: new mongoose.Types.ObjectId(String(to)),
-            status: { $ne: "read" },
-          },
-          { $set: { status: "read" } }
-        );
+    await messageModel.updateMany(
+      {
+        conversationId,
+        receiverId: new mongoose.Types.ObjectId(String(from)), // ✅ the READER
+        status: { $ne: "read" },
+      },
+      { $set: { status: "read" } }
+    );
 
-        // Notify sender AND receiver
-        io.to(String(from)).emit("messages-read", { conversationId, reader: to });
-        io.to(String(to)).emit("messages-read", { conversationId, reader: to });
-      } catch (err) {
-        console.error("🚨 mark-as-read error:", err);
-        socket.emit("errorMessage", { error: "Failed to mark as read" });
-      }
-    });
+    // Notify both participants
+    io.to(String(from)).emit("messages-read", { conversationId, reader: from });
+    io.to(String(to)).emit("messages-read", { conversationId, reader: from });
+  } catch (err) {
+    console.error("🚨 mark-as-read error:", err);
+    socket.emit("errorMessage", { error: "Failed to mark as read" });
+  }
+});
+
 
     // ❌ Disconnect
     socket.on("disconnect", () => {
