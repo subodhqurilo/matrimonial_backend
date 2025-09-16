@@ -4,6 +4,7 @@ import {
   getReceivedRequests,
   getReceivedRequestsByStatus,
   getRejectedRequests,
+  getDeletedRequests,
   getRequestsAcceptedByMe,
   getRequestsAcceptedByOthers,
   getSentRequests,
@@ -23,10 +24,11 @@ accountRouter.get('/receivedData', authenticateUser, getReceivedRequestsByStatus
 accountRouter.get('/getSendRequest', authenticateUser, getSentRequests);
 accountRouter.get('/accepted-by-me', authenticateUser, getRequestsAcceptedByMe);
 accountRouter.get('/accepted-by-others', authenticateUser, getRequestsAcceptedByOthers);
-accountRouter.get('/deleteGet', authenticateUser, getRejectedRequests);
-accountRouter.get('/deleteGet', authenticateUser, getRejectedRequests);
+accountRouter.get('/rejected', authenticateUser, getRejectedRequests);
+accountRouter.get('/deleted', authenticateUser, getDeletedRequests);
 
-// ✅ Add DELETE route for frontend
+
+
+
 
 export default accountRouter;
-//ram
