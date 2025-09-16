@@ -146,6 +146,43 @@ export const getOnlineStatus = async (req, res) => {
 
 
 
+
+/**
+ * DELETE /api/message/:id
+ */
+export const deleteMessage = async (req, res) => {
+  try {
+    const userId = req.userId; // sender ID
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id))
+      return res.status(400).json({ success: false, message: "Invalid message ID" });
+
+    const message = await messageModel.findById(id);
+    if (!message) return res.status(404).json({ success: false, message: "Message not found" });
+
+    // Only sender can delete
+    if (message.senderId.toString() !== userId)
+      return res.status(403).json({ success: false, message: "Cannot delete this message" });
+
+    await message.deleteOne();
+
+    // Emit event via socket if needed
+    const io = req.app.get("io");
+    if (io) {
+      io.to(message.receiverId.toString()).emit("messageDeleted", { messageId: id });
+      io.to(userId.toString()).emit("messageDeleted", { messageId: id });
+    }
+
+    res.status(200).json({ success: true, message: "Message deleted" });
+  } catch (err) {
+    console.error("Error deleting message:", err);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+
+
 export const getAllUser = async (req, res) => {
   try {
     const userId = req.userId; // set by authenticateUser middleware

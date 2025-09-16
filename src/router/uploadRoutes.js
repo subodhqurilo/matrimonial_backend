@@ -1,8 +1,7 @@
-// src/router/uploadRoutes.js
 import express from 'express';
 import multer from 'multer';
-
 import cloudinary from '../utils/cloudinary.js';
+import streamifier from 'streamifier';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -10,8 +9,6 @@ const upload = multer({ storage: multer.memoryStorage() });
 router.post('/', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: 'No file provided' });
-
-    const streamifier = require('streamifier');
 
     const streamUpload = (reqFile) => {
       return new Promise((resolve, reject) => {
