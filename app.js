@@ -18,6 +18,8 @@ import profileViewRouter from './src/router/profileViewRoutes.js';
 import mutualRouter from './src/router/mutualRoute.js';
 import similarRouter from './src/router/similarProfileRoutes.js';
 import path from 'path';
+import uploadRoutes from './src/router/uploadRoutes.js';
+
 const app = express();
 
 app.use(cors());
@@ -42,6 +44,7 @@ app.use('/api/similar',similarRouter)
 app.use('/api/banners',bannerRouter)
 app.use('/api/mutual-matches',mutualRouter)
 app.use('/admin',adminRoute)
+app.use('/api/upload', uploadRoutes);
 
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
