@@ -3,6 +3,8 @@ import { AccountRequestModel } from "../modal/accountRequestModel.js";
 import messageModel from "../modal/messageModel.js";
 import RegisterModel from "../modal/register.js";
 import { getOnlineUserIds } from "../../socket.js";
+import { BlockModel } from "../modal/Blockmodal.js";
+
 
 /**
  * Utility: generate a consistent conversationId
@@ -288,26 +290,28 @@ export const deleteAllMessages = async (req, res) => {
 };
 
 
-export const checkBlockStatus = async (req, res) => {
+export const getBlockStatus = async (req, res) => {
   try {
+    const myId = req.user.id;
     const { otherUserId } = req.params;
-    const userId = req.userId; // use the same as other routes
 
-    if (!userId || !otherUserId) {
-      return res.status(400).json({ success: false, message: "User IDs required" });
-    }
+    const iBlocked = await BlockModel.findOne({ blockedBy: myId, blockedUser: otherUserId });
+    const blockedMe = await BlockModel.findOne({ blockedBy: otherUserId, blockedUser: myId });
 
-    const user = await RegisterModel.findById(userId);
-    if (!user) return res.status(404).json({ success: false, message: "User not found" });
-
-    const isBlocked = user.blockedUsers.includes(otherUserId);
-
-    res.status(200).json({ success: true, isBlocked });
-  } catch (err) {
-    console.error("Error in checkBlockStatus:", err);
+    res.status(200).json({
+      success: true,
+      data: {
+        iBlocked: !!iBlocked,
+        blockedMe: !!blockedMe,
+      },
+    });
+  } catch (error) {
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
+
+
 
 
 
@@ -317,23 +321,23 @@ export const checkBlockStatus = async (req, res) => {
  */
 export const blockUser = async (req, res) => {
   try {
-    const userId = req.userId;
-    const { targetUserId } = req.body;
+    const { userIdToBlock } = req.body;
+    const myId = req.user.id;
 
-    if (!targetUserId) {
-      return res.status(400).json({ success: false, message: "Target user ID required" });
-    }
+    const existing = await BlockModel.findOne({ blockedBy: myId, blockedUser: userIdToBlock });
+    if (existing) return res.status(400).json({ success: false, message: "Already blocked" });
 
-    await RegisterModel.findByIdAndUpdate(userId, {
-      $addToSet: { blockedUsers: targetUserId }
-    });
+    const block = new BlockModel({ blockedBy: myId, blockedUser: userIdToBlock });
+    await block.save();
 
     res.status(200).json({ success: true, message: "User blocked" });
-  } catch (err) {
-    console.error("Error blocking user:", err);
+  } catch (error) {
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
+
+
 
 /**
  * POST /api/user/unblock
@@ -341,23 +345,20 @@ export const blockUser = async (req, res) => {
  */
 export const unblockUser = async (req, res) => {
   try {
-    const userId = req.userId;
-    const { targetUserId } = req.body;
+    const { userIdToUnblock } = req.body;
+    const myId = req.user.id;
 
-    if (!targetUserId) {
-      return res.status(400).json({ success: false, message: "Target user ID required" });
-    }
+    const deleted = await BlockModel.findOneAndDelete({ blockedBy: myId, blockedUser: userIdToUnblock });
 
-    await RegisterModel.findByIdAndUpdate(userId, {
-      $pull: { blockedUsers: targetUserId }
-    });
+    if (!deleted) return res.status(400).json({ success: false, message: "Not found or not authorized" });
 
     res.status(200).json({ success: true, message: "User unblocked" });
-  } catch (err) {
-    console.error("Error unblocking user:", err);
+  } catch (error) {
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
+
 
 
 /**
