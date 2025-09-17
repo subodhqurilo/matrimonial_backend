@@ -22,14 +22,17 @@ export const postMessage = async (req, res) => {
     const senderId = req.userId;
 
     if (!senderId || !receiverId || !messageText?.trim()) {
-      return res
-        .status(400)
-        .json({ success: false, message: "All fields are required" });
+      return res.status(400).json({ success: false, message: "All fields are required" });
+    }
+
+    // Check if sender blocked the receiver
+    const sender = await RegisterModel.findById(senderId);
+    if (sender.blockedUsers.includes(receiverId)) {
+      return res.status(403).json({ success: false, message: "You have blocked this user" });
     }
 
     const conversationId = getConversationId(senderId, receiverId);
 
-    // 1) save
     let message = await messageModel.create({
       senderId,
       receiverId,
@@ -38,7 +41,6 @@ export const postMessage = async (req, res) => {
       status: "sent",
     });
 
-    // 2) if receiver online, mark delivered + emit via sockets
     const io = req.app.get("io");
     if (io) {
       io.to(String(receiverId)).emit("receiveMessage", message);
@@ -49,25 +51,20 @@ export const postMessage = async (req, res) => {
           { _id: message._id },
           { $set: { status: "delivered" } }
         );
-        message = await messageModel.findById(message._id); // refresh
+        message = await messageModel.findById(message._id);
         io.to(String(senderId)).emit("messageDelivered", { messageId: message._id });
       }
 
       io.to(String(senderId)).emit("messageSent", message);
     }
 
-    res.status(201).json({
-      success: true,
-      message: "Message sent",
-      data: message,
-    });
+    res.status(201).json({ success: true, message: "Message sent", data: message });
   } catch (error) {
     console.error("Error in postMessage:", error);
-    res
-      .status(500)
-      .json({ success: false, message: "Internal server error" });
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
 
 /**
  * GET /api/message?currentUserId=<otherUserId>
@@ -76,15 +73,22 @@ export const postMessage = async (req, res) => {
 export const getMessages = async (req, res) => {
   try {
     const userId = req.userId;
-    const currentUserId = req.query.currentUserId;
+    const otherUserId = req.query.currentUserId;
 
-    if (!userId || !currentUserId) {
-      return res
-        .status(400)
-        .json({ success: false, message: "User IDs required" });
+    if (!userId || !otherUserId) {
+      return res.status(400).json({ success: false, message: "User IDs required" });
     }
 
-    const conversationId = getConversationId(userId, currentUserId);
+    // Check if current user blocked the other user
+    const currentUser = await RegisterModel.findById(userId);
+    const hasBlocked = currentUser.blockedUsers.includes(otherUserId);
+
+    if (hasBlocked) {
+      // Agar block kiya hai to messages show na kare
+      return res.status(200).json({ success: true, data: [] });
+    }
+
+    const conversationId = getConversationId(userId, otherUserId);
 
     const messages = await messageModel
       .find({ conversationId })
@@ -94,11 +98,10 @@ export const getMessages = async (req, res) => {
     res.status(200).json({ success: true, data: messages });
   } catch (error) {
     console.error("Error in getMessages:", error);
-    res
-      .status(500)
-      .json({ success: false, message: "Internal server error" });
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
 
 /**
  * GET /api/message/unreadCount
@@ -107,11 +110,14 @@ export const getUnreadMessagesCount = async (req, res) => {
   try {
     const userId = req.userId;
 
+    const currentUser = await RegisterModel.findById(userId);
+
     const unreadCounts = await messageModel.aggregate([
       {
         $match: {
           receiverId: new mongoose.Types.ObjectId(String(userId)),
           status: { $ne: "read" },
+          senderId: { $nin: currentUser.blockedUsers }, // Ignore blocked users
         },
       },
       {
@@ -125,11 +131,10 @@ export const getUnreadMessagesCount = async (req, res) => {
     res.status(200).json({ success: true, data: unreadCounts });
   } catch (error) {
     console.error("Error in getUnreadMessagesCount:", error);
-    res
-      .status(500)
-      .json({ success: false, message: "Internal server error" });
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
 
 /**
  * GET /api/message/online
@@ -250,15 +255,25 @@ export const deleteAllMessages = async (req, res) => {
     const userId = req.userId;
     const { otherUserId } = req.params;
 
-    if (!otherUserId) {
-      return res.status(400).json({ success: false, message: "Other user ID required" });
-    }
+    if (!otherUserId) return res.status(400).json({ success: false, message: "Other user ID required" });
+
+    // Check if user blocked the other user
+    const currentUser = await RegisterModel.findById(userId);
+    const hasBlocked = currentUser.blockedUsers.includes(otherUserId);
 
     const conversationId = getConversationId(userId, otherUserId);
 
-    await messageModel.deleteMany({ conversationId });
+    if (hasBlocked) {
+      // Only remove messages for blocker
+      await messageModel.updateMany(
+        { conversationId, senderId: userId },
+        { $set: { deletedAt: new Date() } }
+      );
+    } else {
+      // Normal delete for all
+      await messageModel.deleteMany({ conversationId });
+    }
 
-    // Notify via socket
     const io = req.app.get("io");
     if (io) {
       io.to(String(userId)).emit("allMessagesDeleted", { otherUserId });
@@ -271,6 +286,7 @@ export const deleteAllMessages = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
 
 export const checkBlockStatus = async (req, res) => {
   try {
