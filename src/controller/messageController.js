@@ -165,30 +165,28 @@ export const getUnreadMessagesCount = async (req, res) => {
  */
 export const getOnlineStatus = async (req, res) => {
   try {
+    // Current user
     const userId = req.userId;
 
     // All online users
-    const onlineUserIds = getOnlineUserIds();
+    const onlineUserIds = getOnlineUserIds(); // returns array of user IDs
 
-    // Users who blocked me
-    const blockedMeDocs = await BlockModel.find({ blockedUser: userId });
-    const blockedMeIds = blockedMeDocs.map(doc => doc.blockedBy.toString());
+    // ✅ Do not filter blocked users
+    // const blockedMeDocs = await BlockModel.find({ blockedUser: userId });
+    // const blockedMeIds = blockedMeDocs.map(doc => doc.blockedBy.toString());
+    // const currentUser = await RegisterModel.findById(userId);
+    // const blockedByMeIds = currentUser.blockedUsers.map(id => id.toString());
+    // const filteredOnlineUserIds = onlineUserIds.filter(
+    //   id => !blockedMeIds.includes(id.toString()) && !blockedByMeIds.includes(id.toString())
+    // );
 
-    // Users I blocked
-    const currentUser = await RegisterModel.findById(userId);
-    const blockedByMeIds = currentUser.blockedUsers.map(id => id.toString());
-
-    // Filter out blocked users
-    const filteredOnlineUserIds = onlineUserIds.filter(
-      id => !blockedMeIds.includes(id.toString()) && !blockedByMeIds.includes(id.toString())
-    );
-
-    res.status(200).json({ success: true, data: filteredOnlineUserIds });
+    res.status(200).json({ success: true, data: onlineUserIds });
   } catch (error) {
     console.error("Error in getOnlineStatus:", error);
     res.status(500).json({ success: false, message: "Internal error" });
   }
 };
+
 
 
 
