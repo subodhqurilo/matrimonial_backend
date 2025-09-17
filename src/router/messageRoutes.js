@@ -11,6 +11,7 @@ import {
   blockUser,          // 👈 new
   unblockUser,        // 👈 new
   deleteAllMessages,
+  checkBlockStatus   
 } from '../controller/messageController.js';
 import { authenticateUser } from '../middlewares/authMiddleware.js';
 
