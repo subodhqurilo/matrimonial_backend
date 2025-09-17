@@ -3,7 +3,7 @@ import { AccountRequestModel } from "../modal/accountRequestModel.js";
 import messageModel from "../modal/messageModel.js";
 import RegisterModel from "../modal/register.js";
 import { getOnlineUserIds } from "../../socket.js";
-import { BlockModel } from "../modal/Blockmodal.js";
+import { BlockModel } from "../modal/blockModel.js";
 
 
 /**
@@ -288,6 +288,23 @@ export const deleteAllMessages = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+// messageController.js
+export const checkBlockStatus = async (req, res) => {
+  try {
+    const { otherUserId } = req.params;
+    const currentUserId = req.user._id; // from authenticateUser middleware
+
+    // Example logic: check if current user blocked other user or vice versa
+    const iBlocked = await BlockModel.exists({ blocker: currentUserId, blocked: otherUserId });
+    const blockedMe = await BlockModel.exists({ blocker: otherUserId, blocked: currentUserId });
+
+    res.json({ success: true, iBlocked: !!iBlocked, blockedMe: !!blockedMe });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 
 
 export const getBlockStatus = async (req, res) => {

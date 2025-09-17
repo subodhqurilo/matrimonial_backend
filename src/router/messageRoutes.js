@@ -11,7 +11,8 @@ import {
   blockUser,         // ✅
   unblockUser,       // ✅
   deleteAllMessages,
-  checkBlockStatus   // ✅
+    checkBlockStatus // ✅ must be here
+
 } from '../controller/messageController.js';
 import { authenticateUser } from '../middlewares/authMiddleware.js';
 
