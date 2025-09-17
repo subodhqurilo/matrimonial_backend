@@ -3,6 +3,7 @@ import { AccountRequestModel } from "../modal/accountRequestModel.js";
 import messageModel from "../modal/messageModel.js";
 import RegisterModel from "../modal/register.js";
 import { getOnlineUserIds } from "../../socket.js";
+
 import { BlockModel } from "../modal/blockModel.js";
 
 
@@ -27,10 +28,16 @@ export const postMessage = async (req, res) => {
       return res.status(400).json({ success: false, message: "All fields are required" });
     }
 
-    // Check if sender blocked the receiver
-    const sender = await RegisterModel.findById(senderId);
-    if (sender.blockedUsers.includes(receiverId)) {
-      return res.status(403).json({ success: false, message: "You have blocked this user" });
+    // Check if sender or receiver has blocked each other
+    const blockExists = await BlockModel.exists({
+      $or: [
+        { blockedBy: senderId, blockedUser: receiverId },
+        { blockedBy: receiverId, blockedUser: senderId },
+      ]
+    });
+
+    if (blockExists) {
+      return res.status(403).json({ success: false, message: "Message blocked due to block status" });
     }
 
     const conversationId = getConversationId(senderId, receiverId);
@@ -68,6 +75,7 @@ export const postMessage = async (req, res) => {
 };
 
 
+
 /**
  * GET /api/message?currentUserId=<otherUserId>
  * Returns chat history via conversationId
@@ -81,12 +89,16 @@ export const getMessages = async (req, res) => {
       return res.status(400).json({ success: false, message: "User IDs required" });
     }
 
-    // Check if current user blocked the other user
-    const currentUser = await RegisterModel.findById(userId);
-    const hasBlocked = currentUser.blockedUsers.includes(otherUserId);
+    // Check if either user has blocked the other
+    const blockExists = await BlockModel.exists({
+      $or: [
+        { blockedBy: userId, blockedUser: otherUserId },
+        { blockedBy: otherUserId, blockedUser: userId },
+      ],
+    });
 
-    if (hasBlocked) {
-      // Agar block kiya hai to messages show na kare
+    if (blockExists) {
+      // If blocked in either direction, hide messages
       return res.status(200).json({ success: true, data: [] });
     }
 
@@ -105,6 +117,7 @@ export const getMessages = async (req, res) => {
 };
 
 
+
 /**
  * GET /api/message/unreadCount
  */
@@ -112,14 +125,22 @@ export const getUnreadMessagesCount = async (req, res) => {
   try {
     const userId = req.userId;
 
+    // Find users who blocked me
+    const blockedMeDocs = await BlockModel.find({ blockedUser: userId });
+    const blockedMeIds = blockedMeDocs.map(doc => doc.blockedBy.toString());
+
+    // Find users I have blocked
     const currentUser = await RegisterModel.findById(userId);
+    const blockedByMeIds = currentUser.blockedUsers.map(id => id.toString());
+
+    const blockedIds = [...blockedByMeIds, ...blockedMeIds];
 
     const unreadCounts = await messageModel.aggregate([
       {
         $match: {
           receiverId: new mongoose.Types.ObjectId(String(userId)),
           status: { $ne: "read" },
-          senderId: { $nin: currentUser.blockedUsers }, // Ignore blocked users
+          senderId: { $nin: blockedIds.map(id => new mongoose.Types.ObjectId(id)) },
         },
       },
       {
@@ -138,17 +159,37 @@ export const getUnreadMessagesCount = async (req, res) => {
 };
 
 
+
 /**
  * GET /api/message/online
  */
 export const getOnlineStatus = async (req, res) => {
   try {
+    const userId = req.userId;
+
+    // All online users
     const onlineUserIds = getOnlineUserIds();
-    res.status(200).json({ success: true, data: onlineUserIds });
+
+    // Users who blocked me
+    const blockedMeDocs = await BlockModel.find({ blockedUser: userId });
+    const blockedMeIds = blockedMeDocs.map(doc => doc.blockedBy.toString());
+
+    // Users I blocked
+    const currentUser = await RegisterModel.findById(userId);
+    const blockedByMeIds = currentUser.blockedUsers.map(id => id.toString());
+
+    // Filter out blocked users
+    const filteredOnlineUserIds = onlineUserIds.filter(
+      id => !blockedMeIds.includes(id.toString()) && !blockedByMeIds.includes(id.toString())
+    );
+
+    res.status(200).json({ success: true, data: filteredOnlineUserIds });
   } catch (error) {
+    console.error("Error in getOnlineStatus:", error);
     res.status(500).json({ success: false, message: "Internal error" });
   }
 };
+
 
 
 
@@ -172,6 +213,17 @@ export const deleteMessage = async (req, res) => {
     if (message.senderId.toString() !== userId)
       return res.status(403).json({ success: false, message: "Cannot delete this message" });
 
+    // Check block status
+    const blockExists = await BlockModel.exists({
+      $or: [
+        { blockedBy: userId, blockedUser: message.receiverId },
+        { blockedBy: message.receiverId, blockedUser: userId },
+      ]
+    });
+    if (blockExists) {
+      return res.status(403).json({ success: false, message: "Cannot delete message due to block status" });
+    }
+
     await message.deleteOne();
 
     // Emit event via socket if needed
@@ -187,6 +239,7 @@ export const deleteMessage = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
 
 
 
@@ -209,14 +262,23 @@ export const getAllUser = async (req, res) => {
       .populate("receiverId", "firstName lastName profileImage");
 
     // Extract only the "other" user from each request
-    const users = acceptedRequests
-      .map(reqDoc => {
-        if (!reqDoc?.requesterId || !reqDoc?.receiverId) return null;
-        return String(reqDoc.requesterId._id) === String(userId)
-          ? reqDoc.receiverId
-          : reqDoc.requesterId;
-      })
-      .filter(Boolean);
+    const users = [];
+    for (const reqDoc of acceptedRequests) {
+      if (!reqDoc?.requesterId || !reqDoc?.receiverId) continue;
+
+      const otherUser = String(reqDoc.requesterId._id) === String(userId)
+        ? reqDoc.receiverId
+        : reqDoc.requesterId;
+
+      // Check if either blocked the other
+      const blocked = await BlockModel.exists({
+        $or: [
+          { blockedBy: userId, blockedUser: otherUser._id },
+          { blockedBy: otherUser._id, blockedUser: userId }
+        ]
+      });
+      if (!blocked) users.push(otherUser);
+    }
 
     res.status(200).json({ success: true, data: users });
   } catch (error) {
@@ -226,6 +288,7 @@ export const getAllUser = async (req, res) => {
 };
 
 
+
 export const markMessagesAsRead = async (req, res) => {
   try {
     const userId = req.userId;
@@ -233,6 +296,18 @@ export const markMessagesAsRead = async (req, res) => {
 
     if (!userId || !otherUserId) {
       return res.status(400).json({ success: false, message: "User IDs required" });
+    }
+
+    // Check if either blocked the other
+    const isBlocked = await BlockModel.exists({
+      $or: [
+        { blockedBy: userId, blockedUser: otherUserId },
+        { blockedBy: otherUserId, blockedUser: userId }
+      ]
+    });
+
+    if (isBlocked) {
+      return res.status(403).json({ success: false, message: "Cannot mark messages as read due to block status" });
     }
 
     const conversationId = [String(userId), String(otherUserId)].sort().join("_");
@@ -249,24 +324,31 @@ export const markMessagesAsRead = async (req, res) => {
   }
 };
 
+
 /**
  * DELETE /api/message/deleteAll/:otherUserId
  */
+
 export const deleteAllMessages = async (req, res) => {
   try {
     const userId = req.userId;
     const { otherUserId } = req.params;
 
-    if (!otherUserId) return res.status(400).json({ success: false, message: "Other user ID required" });
+    if (!otherUserId)
+      return res.status(400).json({ success: false, message: "Other user ID required" });
 
-    // Check if user blocked the other user
-    const currentUser = await RegisterModel.findById(userId);
-    const hasBlocked = currentUser.blockedUsers.includes(otherUserId);
+    // Check if either user blocked the other
+    const isBlocked = await BlockModel.exists({
+      $or: [
+        { blockedBy: userId, blockedUser: otherUserId },
+        { blockedBy: otherUserId, blockedUser: userId },
+      ],
+    });
 
     const conversationId = getConversationId(userId, otherUserId);
 
-    if (hasBlocked) {
-      // Only remove messages for blocker
+    if (isBlocked) {
+      // Only remove messages for the user performing the delete
       await messageModel.updateMany(
         { conversationId, senderId: userId },
         { $set: { deletedAt: new Date() } }
@@ -288,32 +370,20 @@ export const deleteAllMessages = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
-// messageController.js
-export const checkBlockStatus = async (req, res) => {
-  try {
-    const { otherUserId } = req.params;
-    const currentUserId = req.user._id; // from authenticateUser middleware
-
-    // Example logic: check if current user blocked other user or vice versa
-    const iBlocked = await BlockModel.exists({ blocker: currentUserId, blocked: otherUserId });
-    const blockedMe = await BlockModel.exists({ blocker: otherUserId, blocked: currentUserId });
-
-    res.json({ success: true, iBlocked: !!iBlocked, blockedMe: !!blockedMe });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-};
 
 
 
 export const getBlockStatus = async (req, res) => {
   try {
-    const myId = req.user.id;
+    const myId = req.userId; // use req.userId for consistency
     const { otherUserId } = req.params;
 
-    const iBlocked = await BlockModel.findOne({ blockedBy: myId, blockedUser: otherUserId });
-    const blockedMe = await BlockModel.findOne({ blockedBy: otherUserId, blockedUser: myId });
+    if (!myId || !otherUserId) {
+      return res.status(400).json({ success: false, message: "User IDs required" });
+    }
+
+    const iBlocked = await BlockModel.exists({ blockedBy: myId, blockedUser: otherUserId });
+    const blockedMe = await BlockModel.exists({ blockedBy: otherUserId, blockedUser: myId });
 
     res.status(200).json({
       success: true,
@@ -323,9 +393,11 @@ export const getBlockStatus = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error("Error in getBlockStatus:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
 
 
 
@@ -338,42 +410,57 @@ export const getBlockStatus = async (req, res) => {
  */
 export const blockUser = async (req, res) => {
   try {
-    const { userIdToBlock } = req.body;
-    const myId = req.user.id;
+    const myId = req.userId;
+    const { targetUserId } = req.body;
 
-    const existing = await BlockModel.findOne({ blockedBy: myId, blockedUser: userIdToBlock });
-    if (existing) return res.status(400).json({ success: false, message: "Already blocked" });
+    if (!myId || !targetUserId) {
+      return res.status(400).json({ success: false, message: "User ID required" });
+    }
 
-    const block = new BlockModel({ blockedBy: myId, blockedUser: userIdToBlock });
-    await block.save();
+    const alreadyBlocked = await BlockModel.exists({ blockedBy: myId, blockedUser: targetUserId });
+    if (alreadyBlocked) {
+      return res.status(400).json({ success: false, message: "Already blocked" });
+    }
+
+    await BlockModel.create({ blockedBy: myId, blockedUser: targetUserId });
+    console.log(`User ${myId} blocked ${targetUserId}`);
 
     res.status(200).json({ success: true, message: "User blocked" });
-  } catch (error) {
+  } catch (err) {
+    console.error("Error blocking user:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
 
+// POST /api/message/unblock
 
 
-/**
- * POST /api/user/unblock
- * Body: { targetUserId }
- */
 export const unblockUser = async (req, res) => {
   try {
-    const { userIdToUnblock } = req.body;
-    const myId = req.user.id;
+    const myId = req.userId;
+    const { targetUserId } = req.body;
 
-    const deleted = await BlockModel.findOneAndDelete({ blockedBy: myId, blockedUser: userIdToUnblock });
+    if (!myId || !targetUserId) {
+      return res.status(400).json({ success: false, message: "User ID required" });
+    }
 
-    if (!deleted) return res.status(400).json({ success: false, message: "Not found or not authorized" });
+    const result = await BlockModel.deleteOne({ blockedBy: myId, blockedUser: targetUserId });
+
+    if (result.deletedCount === 0) {
+      return res.status(400).json({ success: false, message: "User not blocked or not found" });
+    }
+
+    console.log(`User ${myId} unblocked ${targetUserId}`);
 
     res.status(200).json({ success: true, message: "User unblocked" });
-  } catch (error) {
+  } catch (err) {
+    console.error("Error unblocking user:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
+
 
 
 
@@ -383,13 +470,12 @@ export const unblockUser = async (req, res) => {
  */
 export const getAllRequestsExceptMine = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = String(req.userId);
     if (!userId) {
-      return res
-        .status(400)
-        .json({ success: false, message: "User ID required" });
+      return res.status(400).json({ success: false, message: "User ID required" });
     }
 
+    // Fetch accepted requests not created by this user
     const requests = await AccountRequestModel.find({
       status: "accepted",
       userId: { $ne: userId },
@@ -397,20 +483,25 @@ export const getAllRequestsExceptMine = async (req, res) => {
       .populate("requesterId", "firstName lastName profileImage")
       .populate("receiverId", "firstName lastName profileImage");
 
-    const otherUsers = requests
+    // Get the other user in each request
+    let otherUsers = requests
       .map((r) => {
         if (!r?.requesterId || !r?.receiverId) return null;
-        return String(r.requesterId._id) === String(userId)
+        return String(r.requesterId._id) === userId
           ? r.receiverId
           : r.requesterId;
       })
       .filter(Boolean);
 
+    // Optionally exclude blocked users
+    const currentUser = await RegisterModel.findById(userId);
+    const blockedIds = currentUser?.blockedUsers.map(id => String(id)) || [];
+    otherUsers = otherUsers.filter(u => !blockedIds.includes(String(u._id)));
+
     res.status(200).json({ success: true, data: otherUsers });
   } catch (error) {
     console.error("Error in getAllRequestsExceptMine:", error);
-    res
-      .status(500)
-      .json({ success: false, message: "Internal server error" });
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+

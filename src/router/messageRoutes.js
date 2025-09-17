@@ -7,13 +7,13 @@ import {
   deleteMessage,
   getOnlineStatus,
   markMessagesAsRead,
-  getAllUser,        // ✅
-  blockUser,         // ✅
-  unblockUser,       // ✅
+  getAllUser,
+  blockUser,
+  unblockUser,
   deleteAllMessages,
-    checkBlockStatus // ✅ must be here
-
+  getBlockStatus as checkBlockStatus // ✅ rename while importing
 } from '../controller/messageController.js';
+
 import { authenticateUser } from '../middlewares/authMiddleware.js';
 
 const messageRoutes = express.Router();
