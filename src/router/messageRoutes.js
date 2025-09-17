@@ -27,5 +27,6 @@ messageRoutes.post('/block', authenticateUser, blockUser);
 messageRoutes.post('/unblock', authenticateUser, unblockUser);
 messageRoutes.delete('/deleteAll/:otherUserId', authenticateUser, deleteAllMessages);
 messageRoutes.patch('/markAsRead', authenticateUser, markMessagesAsRead);
+messageRoutes.get('/isBlocked/:otherUserId', authenticateUser, checkBlockStatus);
 
 export default messageRoutes;

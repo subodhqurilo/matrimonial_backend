@@ -272,6 +272,27 @@ export const deleteAllMessages = async (req, res) => {
   }
 };
 
+export const checkBlockStatus = async (req, res) => {
+  try {
+    const { otherUserId } = req.params;
+    const userId = req.userId; // use the same as other routes
+
+    if (!userId || !otherUserId) {
+      return res.status(400).json({ success: false, message: "User IDs required" });
+    }
+
+    const user = await RegisterModel.findById(userId);
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+    const isBlocked = user.blockedUsers.includes(otherUserId);
+
+    res.status(200).json({ success: true, isBlocked });
+  } catch (err) {
+    console.error("Error in checkBlockStatus:", err);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
 
 
 /**
