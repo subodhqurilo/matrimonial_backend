@@ -242,6 +242,86 @@ export const markMessagesAsRead = async (req, res) => {
   }
 };
 
+/**
+ * DELETE /api/message/deleteAll/:otherUserId
+ */
+export const deleteAllMessages = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { otherUserId } = req.params;
+
+    if (!otherUserId) {
+      return res.status(400).json({ success: false, message: "Other user ID required" });
+    }
+
+    const conversationId = getConversationId(userId, otherUserId);
+
+    await messageModel.deleteMany({ conversationId });
+
+    // Notify via socket
+    const io = req.app.get("io");
+    if (io) {
+      io.to(String(userId)).emit("allMessagesDeleted", { otherUserId });
+      io.to(String(otherUserId)).emit("allMessagesDeleted", { otherUserId: userId });
+    }
+
+    res.status(200).json({ success: true, message: "All messages deleted" });
+  } catch (err) {
+    console.error("Error deleting all messages:", err);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+
+
+/**
+ * POST /api/user/block
+ * Body: { targetUserId }
+ */
+export const blockUser = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { targetUserId } = req.body;
+
+    if (!targetUserId) {
+      return res.status(400).json({ success: false, message: "Target user ID required" });
+    }
+
+    await RegisterModel.findByIdAndUpdate(userId, {
+      $addToSet: { blockedUsers: targetUserId }
+    });
+
+    res.status(200).json({ success: true, message: "User blocked" });
+  } catch (err) {
+    console.error("Error blocking user:", err);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+/**
+ * POST /api/user/unblock
+ * Body: { targetUserId }
+ */
+export const unblockUser = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { targetUserId } = req.body;
+
+    if (!targetUserId) {
+      return res.status(400).json({ success: false, message: "Target user ID required" });
+    }
+
+    await RegisterModel.findByIdAndUpdate(userId, {
+      $pull: { blockedUsers: targetUserId }
+    });
+
+    res.status(200).json({ success: true, message: "User unblocked" });
+  } catch (err) {
+    console.error("Error unblocking user:", err);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
 
 /**
  * GET /api/message/allUserGet
