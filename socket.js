@@ -24,28 +24,33 @@ export const socketHandler = (io) => {
     });
 
     // 📩 Send message
-    socket.on("send-msg", async ({ from, to, messageText, files }) => {
-      try {
+ socket.on("send-msg", async ({ from, to, messageText, files, tempId }) => {
+
+    try {
         if (!from || !to || (!messageText && (!files || files.length === 0))) return;
 
         const conversationId = [String(from), String(to)].sort().join("_");
 
         // ✅ Sanitize files
-        const safeFiles = (files || []).map((f) => ({
-          fileName: f.fileName || "unknown",
-          fileUrl: f.fileUrl,
-          fileType: f.fileType || "application/octet-stream",
-          fileSize: f.fileSize || 0,
-        }));
+             const safeFiles = (files || []).map((f) => ({
+       fileName: f.fileName || "unknown",
+       fileUrl: f.fileUrl,
+       fileType: f.fileType || "application/octet-stream",
+       fileSize: f.fileSize || 0,
+     }));
 
-        const messageData = {
-          senderId: new mongoose.Types.ObjectId(String(from)),
-          receiverId: new mongoose.Types.ObjectId(String(to)),
-          conversationId,
-          messageText: messageText || "",
-          files: safeFiles,
-          status: "sent",
-        };
+
+             const messageData = {
+       senderId: new mongoose.Types.ObjectId(String(from)),
+       receiverId: new mongoose.Types.ObjectId(String(to)),
+       conversationId,
+       messageText: messageText || "",
+       files: safeFiles,
+       status: "sent",
+      tempId, // ✅ add this
+     };
+
+
 
         let message = await messageModel.create(messageData);
 
@@ -60,8 +65,12 @@ export const socketHandler = (io) => {
           io.to(String(to)).emit("msg-receive", message);
         }
 
-        // Always confirm to sender
-io.to(String(from)).emit("msg-receive", message); // ✅ same event
+
+  io.to(String(from)).emit("msg-sent", {
+     ...message.toObject(),
+     tempId, // same tempId jo frontend ne bheja tha
+   });
+
 
         console.log(`📨 ${from} → ${to}: ${messageText}`);
       } catch (err) {
