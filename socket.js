@@ -19,6 +19,8 @@ export const socketHandler = (io) => {
 
       console.log(`👤 User online: ${userId}`);
       io.emit("onlineUsers", Array.from(onlineUsers.keys()));
+
+      
     });
 
     // 📩 Send message
@@ -59,7 +61,7 @@ export const socketHandler = (io) => {
         }
 
         // Always confirm to sender
-        io.to(String(from)).emit("msg-sent", message);
+io.to(String(from)).emit("msg-receive", message); // ✅ same event
 
         console.log(`📨 ${from} → ${to}: ${messageText}`);
       } catch (err) {
