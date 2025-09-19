@@ -76,6 +76,8 @@ export const requestOtp = async (req, res) => {
     // send OTP to user
     await sendOtpToPhone(mobile, otp);
 
+        console.log(`📩 OTP for ${mobile}: ${otp}`);
+
     res.status(200).json({ success: true, message: "OTP sent successfully",otp });
   } catch (error) {
     res.status(500).json({ success: false, message: "OTP request failed", error: error.message });
@@ -153,6 +155,8 @@ export const requestLoginOtp = async (req, res) => {
 
     // Send OTP
     await sendOtpToPhone(mobile, otp);
+
+        console.log(`📩 Login OTP for ${mobile}: ${otp}`);
 
     res.status(200).json({ success: true, message: "OTP sent successfully",otp });
   } catch (error) {
