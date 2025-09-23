@@ -262,57 +262,35 @@ export const getAllUsersILiked = async (req, res) => {
 
 
 
+
 export const getMatchedUsers = async (req, res) => {
   try {
     const userId = req.userId;
 
-    // ✅ Get current user profile
-    const currentUser = await RegisterModel.findById(userId).lean();
-    if (!currentUser) {
-      return res.status(404).json({ success: false, message: "User not found" });
-    }
+    // ✅ Pagination params
+    const page = parseInt(req.query.page) || 1; // default page 1
+    const limit = parseInt(req.query.limit) || 10; // default 10 users per page
+    const skip = (page - 1) * limit;
 
-    // ✅ Build "soft match" conditions
-    const matchConditions = {
-      _id: { $ne: userId }, // exclude self
-      adminApprovel: "approved",
-    };
+    // ✅ Build query: all approved users except self
+    const query = { adminApprovel: "approved", _id: { $ne: userId } };
 
-    if (currentUser.religion) matchConditions.religion = currentUser.religion;
-    if (currentUser.motherTongue) matchConditions.motherTongue = currentUser.motherTongue;
-    if (currentUser.caste) matchConditions.caste = currentUser.caste;
-    if (currentUser.currentCity) matchConditions.currentCity = currentUser.currentCity;
+    // ✅ Fetch total count for pagination info
+    const totalUsers = await RegisterModel.countDocuments(query);
 
-    // ✅ Height (convert to number if possible)
-    if (currentUser.height) {
-      const h = parseInt(currentUser.height); // "170" → 170
-      if (!isNaN(h)) {
-        matchConditions.height = { $gte: h - 5, $lte: h + 5 };
-      }
-    }
-
-    // ✅ Age range (DOB based filter)
-    if (currentUser.dateOfBirth) {
-      const dob = new Date(currentUser.dateOfBirth);
-      const dobMin = new Date(dob);
-      dobMin.setFullYear(dobMin.getFullYear() - 5);
-
-      const dobMax = new Date(dob);
-      dobMax.setFullYear(dobMax.getFullYear() + 5);
-
-      matchConditions.dateOfBirth = { $gte: dobMin, $lte: dobMax };
-    }
-
-    // ✅ Fetch matched users
-    const matchedUsers = await RegisterModel.find(matchConditions)
+    // ✅ Fetch users with pagination
+    const users = await RegisterModel.find(query)
       .select(`
         _id id firstName lastName dateOfBirth height religion caste occupation
         annualIncome highestEducation currentCity city state currentState motherTongue
         gender profileImage updatedAt createdAt designation
       `)
+      .sort({ updatedAt: -1 }) // latest updated first
+      .skip(skip)
+      .limit(limit)
       .lean();
 
-    // ✅ Helper: Calculate age
+    // ✅ Helper: calculate age
     const calculateAge = (dob) => {
       if (!dob) return "N/A";
       const today = new Date();
@@ -323,8 +301,8 @@ export const getMatchedUsers = async (req, res) => {
       return age;
     };
 
-    // ✅ Format output
-    const formatted = matchedUsers.map((user) => ({
+    // ✅ Format users
+    const formattedUsers = users.map((user) => ({
       _id: user._id,
       id: user.id,
       name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
@@ -348,12 +326,21 @@ export const getMatchedUsers = async (req, res) => {
       lastSeen: moment(user.updatedAt || user.createdAt).fromNow(),
     }));
 
-    res.status(200).json({ success: true, allMatches: formatted });
+    // ✅ Return response with pagination info
+    res.status(200).json({
+      success: true,
+      page,
+      limit,
+      totalUsers,
+      totalPages: Math.ceil(totalUsers / limit),
+      users: formattedUsers,
+    });
   } catch (error) {
     console.error("Error getting matched users:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
 
 
 

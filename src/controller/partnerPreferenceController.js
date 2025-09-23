@@ -249,7 +249,6 @@ export const getUsersByPreference = async (req, res) => {
     if (!userId)
       return res.status(401).json({ success: false, message: "Unauthorized" });
 
-    // 1️⃣ Fetch partner preferences of current user
     const preference = await PartnerPreferenceModel.findOne({ userId }).lean();
     if (!preference) {
       return res.status(404).json({
@@ -258,60 +257,74 @@ export const getUsersByPreference = async (req, res) => {
       });
     }
 
-    // 2️⃣ Build query based on preferences
-    const query = { adminApprovel: "approved" };
-
-    // Gender preference
     const currentUser = await RegisterModel.findById(userId).lean();
-    query.gender =
-      preference.gender || (currentUser.gender === "Male" ? "Female" : "Male");
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
 
-    // Religion, caste, state, city
-    if (preference.religion) query.religion = preference.religion;
-    if (preference.caste) query.caste = preference.caste;
-    if (preference.state) query.state = preference.state;
-    if (preference.city) query.city = preference.city;
+    const today = new Date();
+
+    const orConditions = [];
+
+    // Gender (opposite of current user)
+    const targetGender = preference.gender || (currentUser.gender === "Male" ? "Female" : "Male");
+    if (targetGender) orConditions.push({ gender: targetGender });
+
+    // Religion
+    if (preference.religion) orConditions.push({ religion: preference.religion });
+
+    // Caste
+    if (preference.caste) orConditions.push({ caste: preference.caste });
+
+    // State
+    if (preference.state) orConditions.push({ state: preference.state });
+
+    // City
+    if (preference.city) orConditions.push({ city: preference.city });
+
+    // Marital Status
+    if (preference.maritalStatus) orConditions.push({ maritalStatus: preference.maritalStatus });
+
+    // Designation
+    if (preference.designation) orConditions.push({ designation: preference.designation });
+
+    // Highest Education
+    if (preference.highestEducation) orConditions.push({ highestEducation: preference.highestEducation });
+
+    // Income (assuming numeric comparison)
+    if (preference.income) orConditions.push({ annualIncome: { $gte: Number(preference.income) } });
 
     // Height range
-    if (preference.minheight || preference.maxheight) {
-      query.height = {};
-      if (preference.minheight) query.height.$gte = Number(preference.minheight);
-      if (preference.maxheight) query.height.$lte = Number(preference.maxheight);
+    if (preference.minHeight || preference.maxHeight) {
+      const heightCondition = {};
+      if (preference.minHeight) heightCondition.$gte = Number(preference.minHeight);
+      if (preference.maxHeight) heightCondition.$lte = Number(preference.maxHeight);
+      orConditions.push({ height: heightCondition });
     }
 
     // Age range
     if (preference.minAge || preference.maxAge) {
-      const today = moment();
-      query.dateOfBirth = {};
+      const ageCondition = {};
       if (preference.maxAge)
-        query.dateOfBirth.$lte = today
-          .clone()
-          .subtract(Number(preference.maxAge), "years")
-          .toDate();
+        ageCondition.$gte = new Date(today.getFullYear() - Number(preference.maxAge), today.getMonth(), today.getDate());
       if (preference.minAge)
-        query.dateOfBirth.$gte = today
-          .clone()
-          .subtract(Number(preference.minAge), "years")
-          .toDate();
+        ageCondition.$lte = new Date(today.getFullYear() - Number(preference.minAge), today.getMonth(), today.getDate());
+      orConditions.push({ dateOfBirth: ageCondition });
     }
 
-    // 3️⃣ Additional filters (optional)
-    if (preference.maritalStatus) query.maritalStatus = preference.maritalStatus;
-    if (preference.designation) query.designation = preference.designation;
-    if (preference.income) query.annualIncome = { $gte: Number(preference.income) };
-    if (preference.highestEducation)
-      query.highestEducation = preference.highestEducation;
-
-    // 4️⃣ Fetch users matching the query
-    const users = await RegisterModel.find(query).select(`
+    // Final query: match any preference
+    const users = await RegisterModel.find({
+      adminApprovel: "approved",
+      _id: { $ne: userId }, // exclude self
+      $or: orConditions,
+    }).select(`
       _id id firstName lastName dateOfBirth height religion caste occupation
       annualIncome highestEducation currentCity city state currentState motherTongue
       gender profileImage updatedAt createdAt designation
     `);
 
-    // Helper to calculate age
+    // Helper function to calculate age
     const calculateAge = (dob) => {
-      const today = new Date();
       const birthDate = new Date(dob);
       let age = today.getFullYear() - birthDate.getFullYear();
       const m = today.getMonth() - birthDate.getMonth();
@@ -319,7 +332,6 @@ export const getUsersByPreference = async (req, res) => {
       return age;
     };
 
-    // 5️⃣ Format the response
     const formattedUsers = users.map((user) => ({
       id: user.id,
       _id: user._id,
@@ -332,23 +344,16 @@ export const getUsersByPreference = async (req, res) => {
       profession: user.occupation,
       salary: user.annualIncome,
       education: user.highestEducation,
-      location: `${user.city || user.currentCity || ""}, ${
-        user.state || user.currentState || ""
-      }`,
-      languages: Array.isArray(user.motherTongue)
-        ? user.motherTongue.join(", ")
-        : user.motherTongue,
+      location: `${user.city || user.currentCity || ""}, ${user.state || user.currentState || ""}`,
+      languages: Array.isArray(user.motherTongue) ? user.motherTongue.join(", ") : user.motherTongue,
       gender: user.gender,
       profileImage: user.profileImage,
       lastSeen: user.updatedAt || user.createdAt,
     }));
 
-    // 6️⃣ Return response
     res.status(200).json({ success: true, data: formattedUsers });
   } catch (err) {
     console.error(err);
-    res
-      .status(500)
-      .json({ success: false, message: "Server Error", error: err.message });
+    res.status(500).json({ success: false, message: "Server Error", error: err.message });
   }
 };
