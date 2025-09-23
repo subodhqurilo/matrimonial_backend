@@ -383,33 +383,28 @@ export const getUsersWithProfileImage = async (req, res) => {
   try {
     const currentUserId = req.userId;
 
-    // ✅ Pagination params
-    const page = parseInt(req.query.page) || 1; // default page 1
-    const limit = parseInt(req.query.limit) || 10; // default 10 users per page
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    // ✅ Query: users with profile images excluding current user
     const query = {
       _id: { $ne: currentUserId },
       profileImage: { $exists: true, $ne: '' },
     };
 
-    // ✅ Total count for pagination info
-    const totalUsers = await RegisterModel.countDocuments(query);
+    const total = await RegisterModel.countDocuments(query);
 
-    // ✅ Fetch paginated users
     const users = await RegisterModel.find(query)
       .select(
-        'id firstName lastName dateOfBirth height religion caste employedIn ' + 
+        'id firstName lastName dateOfBirth height religion caste employedIn ' +
         'annualIncome highestEducation currentCity city state currentState ' +
         'motherTongue gender profileImage updatedAt createdAt designation'
       )
-      .sort({ updatedAt: -1 }) // latest updated first
+      .sort({ updatedAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
-    // ✅ Helper: calculate age
     const calculateAge = (dob) => {
       if (!dob) return "N/A";
       const today = new Date();
@@ -420,11 +415,10 @@ export const getUsersWithProfileImage = async (req, res) => {
       return age;
     };
 
-    // ✅ Format users
-    const formattedUsers = users.map(user => ({
+    const photo = users.map(user => ({
       _id: user._id,
       id: user.id,
-      name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+      name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || "N/A",
       age: calculateAge(user.dateOfBirth),
       height: user.height || "N/A",
       caste: user.caste || "N/A",
@@ -433,21 +427,24 @@ export const getUsersWithProfileImage = async (req, res) => {
       profession: user.employedIn || "N/A",
       salary: user.annualIncome || "N/A",
       education: user.highestEducation || "N/A",
-      location: `${user.city || user.currentCity || ""}, ${user.state || user.currentState || ""}`.replace(/^, |, $/g, "") || "N/A",
+      location: [
+        user.city || user.currentCity,
+        user.state || user.currentState
+      ].filter(Boolean).join(", ") || "N/A",
       languages: Array.isArray(user.motherTongue) ? user.motherTongue.join(", ") : user.motherTongue || "N/A",
       gender: user.gender || "N/A",
       profileImage: user.profileImage || "https://res.cloudinary.com/dppe3ni5z/image/upload/v1234567890/default-profile.png",
+      altText: `${user.firstName || 'User'}'s profile picture`,
       lastSeen: moment(user.updatedAt || user.createdAt).fromNow(),
     }));
 
-    // ✅ Return response with pagination info
     res.status(200).json({
       success: true,
       page,
       limit,
-      totalUsers,
-      totalPages: Math.ceil(totalUsers / limit),
-      users: formattedUsers,
+      total,
+      totalPages: Math.ceil(total / limit),
+      photo,
     });
   } catch (error) {
     console.error('Error fetching users with profile images:', error);
@@ -459,6 +456,7 @@ export const getUsersWithProfileImage = async (req, res) => {
     });
   }
 };
+
 
 
 export const getNewlyRegisteredUsers = async (req, res) => {
