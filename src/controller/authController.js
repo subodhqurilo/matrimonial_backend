@@ -5,6 +5,9 @@ import admin from "../modal/adminModal.js";
 import OtpModel from "../modal/OtpModel.js";
 import { sendOtpToPhone } from "../utils/sendOtp.js";
 import User from '../modal/User.js'; // adjust path if needed
+import AdminProfile from "../modal/adminProfile.js"; // For profile operations
+
+
 
 const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key";
 
@@ -271,18 +274,36 @@ export const getCurrentUser = async (req, res) => {
 export const adminSignup = async (req, res) => {
   try {
     const { name, email, password } = req.body;
+
+    // Check if admin already exists
     const existingUser = await admin.findOne({ email });
-    if (existingUser) return res.status(400).json({ message: "Admin already exists" });
+    if (existingUser) 
+      return res.status(400).json({ message: "Admin already exists" });
 
+    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = new admin({ name, email, password: hashedPassword });
-    await newUser.save();
 
-    res.status(201).json({ user: { id: newUser._id, name, email } });
+    // Create admin (for authentication)
+    const newAdmin = new admin({ name, email, password: hashedPassword });
+    await newAdmin.save();
+
+    // ✅ Automatically create AdminProfile
+    const newProfile = new AdminProfile({
+      fullName: name,
+      phone: "",
+      assignedRegion: "All",
+    });
+    await newProfile.save();
+
+    res.status(201).json({ 
+      user: { id: newAdmin._id, name, email },
+      message: "Admin signup successful with profile created"
+    });
   } catch (err) {
     res.status(500).json({ message: "Signup failed", error: err.message });
   }
 };
+
 
 export const adminLogin = async (req, res) => {
   try {
@@ -299,6 +320,131 @@ const token = jwt.sign({ userId: user._id }, JWT_SECRET);
     res.status(200).json({ status: "success", token, user: { id: user._id, name: user.name, email: user.email } });
   } catch (err) {
     res.status(500).json({ message: "Login failed", error: err.message });
+  }
+};
+
+
+
+export const getAdminProfile = async (req, res) => {
+  try {
+    // Assuming a single admin for this simple example, or you can find by ID
+    const admin = await AdminProfile.findOne();
+    if (!admin) {
+      return res.status(404).json({ message: 'Admin profile not found' });
+    }
+    res.json(admin);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+
+
+export const updateBasicInfo = async (req, res) => {
+  const { fullName, phone, assignedRegion } = req.body;
+  try {
+    const admin = await AdminProfile.findOne();
+    if (!admin) {
+      return res.status(404).json({ message: 'Admin profile not found' });
+    }
+
+    admin.fullName = fullName || admin.fullName;
+    admin.phone = phone || admin.phone;
+    admin.assignedRegion = assignedRegion || admin.assignedRegion;
+
+    await admin.save();
+    res.json({ message: 'Basic info updated successfully', admin });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+
+export const updateProfilePhoto = async (req, res) => {
+  try {
+    const adminProfile = await AdminProfile.findOne();
+    if (!adminProfile) {
+      return res.status(404).json({ message: "Admin profile not found" });
+    }
+
+    // multer saves file path in req.file.path
+    if (req.file) {
+      adminProfile.profilePhotoUrl = req.file.path; // or convert to URL if using cloud storage
+      await adminProfile.save();
+      return res.json({ message: "Profile photo updated successfully", admin: adminProfile });
+    } else {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+
+
+export const updateSecuritySettings = async (req, res) => {
+  const { currentPassword, newPassword, twoFactorAuth, alertOnSuspiciousLogin } = req.body;
+
+  try {
+    // Fetch the admin profile (assuming single admin for now)
+    const admin = await AdminProfile.findOne();
+    if (!admin) {
+      return res.status(404).json({ message: 'Admin profile not found' });
+    }
+
+    // Handle password change
+    if (newPassword) {
+      // If a password is already set, currentPassword must be provided
+      if (admin.isPasswordSet) {
+        if (!currentPassword) {
+          return res.status(400).json({ message: 'Current password is required to change password' });
+        }
+        const isMatch = await admin.matchPassword(currentPassword);
+        if (!isMatch) {
+          return res.status(401).json({ message: 'Invalid current password' });
+        }
+      }
+
+      // Update password and mark as set
+      admin.password = newPassword;
+      admin.isPasswordSet = true;
+    }
+
+    // Update other security settings if provided
+    if (twoFactorAuth !== undefined) {
+      admin.twoFactorAuth = twoFactorAuth;
+    }
+
+    if (alertOnSuspiciousLogin !== undefined) {
+      admin.alertOnSuspiciousLogin = alertOnSuspiciousLogin;
+    }
+
+    // Save the updated admin profile
+    await admin.save();
+
+    res.json({ message: 'Security settings updated successfully', admin });
+
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+
+export const updatePreferences = async (req, res) => {
+  const { language, defaultLandingPage, theme, notifications } = req.body || {};
+  try {
+    const admin = await AdminProfile.findOne();
+    if (!admin) return res.status(404).json({ message: 'Admin profile not found' });
+
+    admin.language = language || admin.language;
+    admin.defaultLandingPage = defaultLandingPage || admin.defaultLandingPage;
+    admin.theme = theme || admin.theme;
+    if (notifications !== undefined) admin.notifications = notifications;
+
+    await admin.save();
+    res.json({ message: 'Preferences updated successfully', admin });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 

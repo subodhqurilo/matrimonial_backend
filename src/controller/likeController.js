@@ -266,64 +266,70 @@ export const getMatchedUsers = async (req, res) => {
   try {
     const userId = req.userId;
 
-    const matches = await LikeModel.find({
-      status: 'matched',
-      $or: [{ senderId: userId }, { receiverId: userId }]
-    }).lean();
+    // ✅ Get current user profile
+    const currentUser = await RegisterModel.findById(userId).lean();
+    if (!currentUser) return res.status(404).json({ success: false, message: 'User not found' });
 
-    const oppositeUserIds = matches.map((match) => {
-      if (match.senderId.toString() === userId) {
-        return match.receiverId;
-      } else {
-        return match.senderId;
+    // ✅ Build "match conditions" based on current user
+    const matchConditions = {
+      _id: { $ne: userId }, // exclude self
+      adminApprovel: 'approved',
+      // Example "soft match" filters
+      religion: currentUser.religion || undefined,
+      motherTongue: currentUser.motherTongue || undefined,
+      caste: currentUser.caste || undefined,
+      currentCity: currentUser.currentCity || undefined,
+      height: { 
+        $gte: currentUser.height - 5 || 0, 
+        $lte: currentUser.height + 5 || 300 
+      },
+      dateOfBirth: {
+        $gte: new Date(new Date(currentUser.dateOfBirth).setFullYear(new Date(currentUser.dateOfBirth).getFullYear() - 5)),
+        $lte: new Date(new Date(currentUser.dateOfBirth).setFullYear(new Date(currentUser.dateOfBirth).getFullYear() + 5))
       }
-    });
+    };
 
+    // ✅ Remove undefined fields from matchConditions
+    Object.keys(matchConditions).forEach(key => matchConditions[key] === undefined && delete matchConditions[key]);
 
-    const uniqueUserIds = [...new Set(oppositeUserIds.map(String))];
+    // ✅ Fetch users who "soft match"
+    const matchedUsers = await RegisterModel.find(matchConditions)
+      .select(`
+        _id id firstName lastName dateOfBirth height religion caste occupation
+        annualIncome highestEducation currentCity city state currentState motherTongue
+        gender profileImage updatedAt createdAt designation
+      `)
+      .lean();
 
-
-    const matchedUsers = await RegisterModel.find({
-      _id: { $in: uniqueUserIds },
-      adminApprovel: 'approved'
-    }).select(`
-      _id id firstName lastName dateOfBirth height religion caste occupation
-      annualIncome highestEducation currentCity city state currentState motherTongue
-      gender profileImage updatedAt createdAt designation
-    `);
-
-    // Age calculation
-    const calculateAge = (dob) => {
+    // ✅ Helper to calculate age
+    const calculateAge = dob => {
+      if (!dob) return 'N/A';
       const today = new Date();
       const birthDate = new Date(dob);
       let age = today.getFullYear() - birthDate.getFullYear();
       const m = today.getMonth() - birthDate.getMonth();
-      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-        age--;
-      }
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
       return age;
     };
 
-    // Format result
-    const formatted = matchedUsers.map((user) => ({
+    // ✅ Format result
+    const formatted = matchedUsers.map(user => ({
       _id: user._id,
       id: user.id,
-      name: `${user.firstName} ${user.lastName}`,
+      name: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
       age: calculateAge(user.dateOfBirth),
-      height: user.height,
-      caste: user.caste,
-      designation: user.designation,
-      religion: user.religion,
-      profession: user.occupation,
-      salary: user.annualIncome,
-      education: user.highestEducation,
-      location: `${user.city || user.currentCity || ''}, ${user.state || user.currentState || ''}`,
-      languages: Array.isArray(user.motherTongue)
-        ? user.motherTongue.join(', ')
-        : user.motherTongue,
-      gender: user.gender,
-      profileImage: user.profileImage,
-      lastSeen: user.updatedAt || user.createdAt,
+      height: user.height || 'N/A',
+      caste: user.caste || 'N/A',
+      designation: user.designation || 'N/A',
+      religion: user.religion || 'N/A',
+      profession: user.occupation || 'N/A',
+      salary: user.annualIncome || 'N/A',
+      education: user.highestEducation || 'N/A',
+      location: `${user.city || user.currentCity || ''}, ${user.state || user.currentState || ''}`.replace(/^, |, $/g, '') || 'N/A',
+      languages: Array.isArray(user.motherTongue) ? user.motherTongue.join(', ') : user.motherTongue || 'N/A',
+      gender: user.gender || 'N/A',
+      profileImage: user.profileImage || 'https://res.cloudinary.com/dppe3ni5z/image/upload/v1234567890/default-profile.png',
+      lastSeen: moment(user.updatedAt || user.createdAt).fromNow(),
     }));
 
     res.status(200).json({ success: true, allMatches: formatted });
@@ -332,6 +338,7 @@ export const getMatchedUsers = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
 
 
 

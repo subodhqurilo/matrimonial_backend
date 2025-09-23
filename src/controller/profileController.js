@@ -15,6 +15,7 @@ function calculateAge(dob) {
   return `${age} years and ${months} months`;
 }
 
+
 import moment from 'moment';
 
 const calculateAgeString = (dob) => {
@@ -133,8 +134,8 @@ export const getUserFormattedProfile = async (req, res) => {
         dateOfBirth: user.dateOfBirth?.toISOString().split('T')[0],
         timeOfBirth: user.timeOfBirth,
         cityOfBirth: user.cityOfBirth,
-        // zodiacSign: getZodiacSign(user.dateOfBirth), 
-        zodiacSign: user.zodiacSign?user.zodiacSign:'N/A',
+        zodiacSign: user.zodiacSign || getZodiacSign(user.dateOfBirth) || 'N/A',
+
         // horoscope: user.horoscope,
       },
       educationDetails: {
@@ -231,13 +232,16 @@ export const updateUserFormattedProfile = async (req, res) => {
     }
 
     // ✅ Astro Details
-    if (astroDetails) {
-      user.manglik = astroDetails.manglik;
-      user.dateOfBirth = astroDetails.dateOfBirth ? new Date(astroDetails.dateOfBirth) : user.dateOfBirth;
-
-      user.timeOfBirth = astroDetails.timeOfBirth;
-      user.cityOfBirth = astroDetails.cityOfBirth;
-    }
+// ✅ Astro Details
+if (astroDetails) {
+  user.manglik = astroDetails.manglik;
+  if (astroDetails.dateOfBirth) {
+    user.dateOfBirth = new Date(astroDetails.dateOfBirth);
+    user.zodiacSign = getZodiacSign(user.dateOfBirth); // ✅ save zodiac
+  }
+  user.timeOfBirth = astroDetails.timeOfBirth;
+  user.cityOfBirth = astroDetails.cityOfBirth;
+}
 
     // ✅ Education Details
     if (educationDetails) {
@@ -287,9 +291,20 @@ export const updateUserFormattedProfile = async (req, res) => {
 res.status(200).json({
   success: true,
   message: 'Profile updated successfully',
-  data: {
-    aboutMe: user.aboutYourself, // ✅ return updated aboutMe
+    data: {
+    basicInfo: user.basicInfo,
+    religionDetails: user.religionDetails,
+    familyDetails: user.familyDetails,
+    astroDetails: {
+      ...astroDetails,
+      zodiacSign: user.zodiacSign || getZodiacSign(user.dateOfBirth),
+    },
+    educationDetails: user.educationDetails,
+    careerDetails: user.careerDetails,
+    lifestyleHobbies: user.lifestyleHobbies,
+    aboutMe: user.aboutYourself,
   },
+
 });
 
   } catch (error) {
@@ -358,6 +373,7 @@ function getZodiacSign(date) {
 
   return day < zodiac[month - 1][1] ? zodiac[month - 1][0] : zodiac[month][0];
 }
+
 
 
 

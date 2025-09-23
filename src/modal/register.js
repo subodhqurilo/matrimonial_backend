@@ -70,15 +70,17 @@ weight:{type:Number},
 
 
       // 🔮 Astro Details
-  manglik: { type: String, enum: ['Yes', 'No', 'Don’t Know'] },
-  timeOfBirth: { type: String },
-  cityOfBirth: { type: String },
+    zodiacSign: { type: String },
+    manglik: { type: String, enum: ['Yes', 'No', 'Don’t Know'] },
+    timeOfBirth: { type: String },
+    cityOfBirth: { type: String },
+    horoscope: {
+      rashi: { type: String },
+      nakshatra: { type: String },
+      matchRequired: { type: String }
+    },
 
-horoscope: {
-  rashi: { type: String }, // simha rashi (non manglik)
-  nakshatra: { type: String }, // purvaphalguni nakshatra
-  matchRequired: { type: String }, // Horoscope match is not necessary
-},
+
 
     // 👨‍👩‍👧 Family Details
   fatherOccupation: { type: String },

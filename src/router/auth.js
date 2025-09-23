@@ -1,10 +1,17 @@
 import express from "express";
 import upload from "../middlewares/multer.js";
+import admin from "firebase-admin";
+
 import { authenticateUser } from "../middlewares/authMiddleware.js";
 import {
   aadhaarVerification,
   adminLogin,
   adminSignup,
+  getAdminProfile,
+  updateBasicInfo,
+  updateProfilePhoto,
+  updateSecuritySettings,
+  updatePreferences,
   login,
   registerDetails,
   requestOtp,
@@ -48,6 +55,28 @@ authRoute.post("/admin/login", adminLogin);
 authRoute.get("/aadhaar-status", authenticateUser, aadhaarVerification);
 // Get current user
 authRoute.get("/user", authenticateUser, getCurrentUser);
+
+
+
+authRoute.get("/admin/profile", getAdminProfile);
+
+// Update basic info (fullName, phone, assignedRegion)
+authRoute.put("/admin/profile/basic", updateBasicInfo);
+
+// Update profile photo
+authRoute.put(
+  "/admin/profile/photo",
+  authenticateUser,
+  upload.single("profilePhoto"), // <--- form-data key: profilePhoto
+  updateProfilePhoto
+);
+
+
+// Update security settings (password, 2FA, alerts)
+authRoute.put("/admin/profile/security", updateSecuritySettings);
+
+// Update preferences (language, theme, landing page, notifications)
+authRoute.put("/admin/profile/preferences", updatePreferences);
 
 /* ------------------- Push Notification ------------------- */
 authRoute.post("/sendPushNotification", async (req, res) => {
