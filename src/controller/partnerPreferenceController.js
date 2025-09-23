@@ -250,52 +250,28 @@ export const getUsersByPreference = async (req, res) => {
       return res.status(401).json({ success: false, message: "Unauthorized" });
 
     const preference = await PartnerPreferenceModel.findOne({ userId }).lean();
-    if (!preference) {
-      return res.status(404).json({
-        success: false,
-        message: "No partner preferences found. Please set your preferences first.",
-      });
-    }
-
     const currentUser = await RegisterModel.findById(userId).lean();
-    if (!currentUser) {
+    if (!currentUser)
       return res.status(404).json({ success: false, message: "User not found" });
-    }
 
     const today = new Date();
-
     const orConditions = [];
 
-    // Gender (opposite of current user)
-    const targetGender = preference.gender || (currentUser.gender === "Male" ? "Female" : "Male");
-    if (targetGender) orConditions.push({ gender: targetGender });
+    // Gender is now strict
+    const targetGender = preference?.gender || (currentUser.gender === "Male" ? "Female" : "Male");
 
-    // Religion
-    if (preference.religion) orConditions.push({ religion: preference.religion });
-
-    // Caste
-    if (preference.caste) orConditions.push({ caste: preference.caste });
-
-    // State
-    if (preference.state) orConditions.push({ state: preference.state });
-
-    // City
-    if (preference.city) orConditions.push({ city: preference.city });
-
-    // Marital Status
-    if (preference.maritalStatus) orConditions.push({ maritalStatus: preference.maritalStatus });
-
-    // Designation
-    if (preference.designation) orConditions.push({ designation: preference.designation });
-
-    // Highest Education
-    if (preference.highestEducation) orConditions.push({ highestEducation: preference.highestEducation });
-
-    // Income (assuming numeric comparison)
-    if (preference.income) orConditions.push({ annualIncome: { $gte: Number(preference.income) } });
+    // Push other preferences if defined (soft matching)
+    if (preference?.religion) orConditions.push({ religion: preference.religion });
+    if (preference?.caste) orConditions.push({ caste: preference.caste });
+    if (preference?.state) orConditions.push({ state: preference.state });
+    if (preference?.city) orConditions.push({ city: preference.city });
+    if (preference?.maritalStatus) orConditions.push({ maritalStatus: preference.maritalStatus });
+    if (preference?.designation) orConditions.push({ designation: preference.designation });
+    if (preference?.highestEducation) orConditions.push({ highestEducation: preference.highestEducation });
+    if (preference?.income) orConditions.push({ annualIncome: { $gte: Number(preference.income) } });
 
     // Height range
-    if (preference.minHeight || preference.maxHeight) {
+    if (preference?.minHeight || preference?.maxHeight) {
       const heightCondition = {};
       if (preference.minHeight) heightCondition.$gte = Number(preference.minHeight);
       if (preference.maxHeight) heightCondition.$lte = Number(preference.maxHeight);
@@ -303,28 +279,40 @@ export const getUsersByPreference = async (req, res) => {
     }
 
     // Age range
-    if (preference.minAge || preference.maxAge) {
+    if (preference?.minAge || preference?.maxAge) {
       const ageCondition = {};
       if (preference.maxAge)
-        ageCondition.$gte = new Date(today.getFullYear() - Number(preference.maxAge), today.getMonth(), today.getDate());
+        ageCondition.$lte = new Date(today.getFullYear() - Number(preference.maxAge), today.getMonth(), today.getDate());
       if (preference.minAge)
-        ageCondition.$lte = new Date(today.getFullYear() - Number(preference.minAge), today.getMonth(), today.getDate());
+        ageCondition.$gte = new Date(today.getFullYear() - Number(preference.minAge), today.getMonth(), today.getDate());
       orConditions.push({ dateOfBirth: ageCondition });
     }
 
-    // Final query: match any preference
-    const users = await RegisterModel.find({
-      adminApprovel: "approved",
-      _id: { $ne: userId }, // exclude self
-      $or: orConditions,
-    }).select(`
-      _id id firstName lastName dateOfBirth height religion caste occupation
-      annualIncome highestEducation currentCity city state currentState motherTongue
-      gender profileImage updatedAt createdAt designation
-    `);
+    // Pagination
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
 
-    // Helper function to calculate age
+    // Main query: gender strict, soft match for other fields
+    const query = {
+      adminApprovel: "approved",
+      _id: { $ne: userId },
+      gender: targetGender,       // ✅ strict gender filter
+      $or: orConditions.length ? orConditions : [{}],
+    };
+
+    const users = await RegisterModel.find(query)
+      .select(`
+        _id id firstName lastName dateOfBirth height religion caste occupation
+        annualIncome highestEducation currentCity city state currentState motherTongue
+        gender profileImage updatedAt createdAt designation
+      `)
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
     const calculateAge = (dob) => {
+      if (!dob) return "N/A";
       const birthDate = new Date(dob);
       let age = today.getFullYear() - birthDate.getFullYear();
       const m = today.getMonth() - birthDate.getMonth();
@@ -335,25 +323,36 @@ export const getUsersByPreference = async (req, res) => {
     const formattedUsers = users.map((user) => ({
       id: user.id,
       _id: user._id,
-      name: `${user.firstName} ${user.lastName}`,
+      name: `${user.firstName} ${user.lastName}`.trim(),
       age: calculateAge(user.dateOfBirth),
-      height: user.height,
-      caste: user.caste,
-      designation: user.designation,
-      religion: user.religion,
-      profession: user.occupation,
-      salary: user.annualIncome,
-      education: user.highestEducation,
-      location: `${user.city || user.currentCity || ""}, ${user.state || user.currentState || ""}`,
-      languages: Array.isArray(user.motherTongue) ? user.motherTongue.join(", ") : user.motherTongue,
-      gender: user.gender,
-      profileImage: user.profileImage,
+      height: user.height || "N/A",
+      caste: user.caste || "N/A",
+      designation: user.designation || "N/A",
+      religion: user.religion || "N/A",
+      profession: user.occupation || "N/A",
+      salary: user.annualIncome || "N/A",
+      education: user.highestEducation || "N/A",
+      location: `${user.city || user.currentCity || ""}, ${user.state || user.currentState || ""}`.replace(/^, |, $/g, ""),
+      languages: Array.isArray(user.motherTongue) ? user.motherTongue.join(", ") : user.motherTongue || "N/A",
+      gender: user.gender || "N/A",
+      profileImage: user.profileImage || "https://res.cloudinary.com/default-profile.png",
       lastSeen: user.updatedAt || user.createdAt,
     }));
 
-    res.status(200).json({ success: true, data: formattedUsers });
+    const total = await RegisterModel.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+      data: formattedUsers,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: "Server Error", error: err.message });
   }
 };
+
+

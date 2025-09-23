@@ -377,26 +377,80 @@ function getZodiacSign(date) {
 
 
 
+
+
 export const getUsersWithProfileImage = async (req, res) => {
   try {
     const currentUserId = req.userId;
 
-    const photo = await RegisterModel.find({
-      _id: { $ne: currentUserId },
-      profileImage: { $exists: true, $ne: '' }
-    }).select(
-      'id firstName lastName dateOfBirth height religion caste employedIn ' + 
-      'annualIncome highestEducation currentCity city state currentState ' +
-      'motherTongue gender profileImage updatedAt createdAt designation'
-    );
+    // ✅ Pagination params
+    const page = parseInt(req.query.page) || 1; // default page 1
+    const limit = parseInt(req.query.limit) || 10; // default 10 users per page
+    const skip = (page - 1) * limit;
 
+    // ✅ Query: users with profile images excluding current user
+    const query = {
+      _id: { $ne: currentUserId },
+      profileImage: { $exists: true, $ne: '' },
+    };
+
+    // ✅ Total count for pagination info
+    const totalUsers = await RegisterModel.countDocuments(query);
+
+    // ✅ Fetch paginated users
+    const users = await RegisterModel.find(query)
+      .select(
+        'id firstName lastName dateOfBirth height religion caste employedIn ' + 
+        'annualIncome highestEducation currentCity city state currentState ' +
+        'motherTongue gender profileImage updatedAt createdAt designation'
+      )
+      .sort({ updatedAt: -1 }) // latest updated first
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    // ✅ Helper: calculate age
+    const calculateAge = (dob) => {
+      if (!dob) return "N/A";
+      const today = new Date();
+      const birthDate = new Date(dob);
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const m = today.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+      return age;
+    };
+
+    // ✅ Format users
+    const formattedUsers = users.map(user => ({
+      _id: user._id,
+      id: user.id,
+      name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+      age: calculateAge(user.dateOfBirth),
+      height: user.height || "N/A",
+      caste: user.caste || "N/A",
+      designation: user.designation || "N/A",
+      religion: user.religion || "N/A",
+      profession: user.employedIn || "N/A",
+      salary: user.annualIncome || "N/A",
+      education: user.highestEducation || "N/A",
+      location: `${user.city || user.currentCity || ""}, ${user.state || user.currentState || ""}`.replace(/^, |, $/g, "") || "N/A",
+      languages: Array.isArray(user.motherTongue) ? user.motherTongue.join(", ") : user.motherTongue || "N/A",
+      gender: user.gender || "N/A",
+      profileImage: user.profileImage || "https://res.cloudinary.com/dppe3ni5z/image/upload/v1234567890/default-profile.png",
+      lastSeen: moment(user.updatedAt || user.createdAt).fromNow(),
+    }));
+
+    // ✅ Return response with pagination info
     res.status(200).json({
       success: true,
-      count: photo.length,
-      photo,
+      page,
+      limit,
+      totalUsers,
+      totalPages: Math.ceil(totalUsers / limit),
+      users: formattedUsers,
     });
   } catch (error) {
-      console.error('Error fetching users with profile images:', error),
+    console.error('Error fetching users with profile images:', error);
 
     res.status(500).json({
       success: false,
@@ -405,6 +459,7 @@ export const getUsersWithProfileImage = async (req, res) => {
     });
   }
 };
+
 
 export const getNewlyRegisteredUsers = async (req, res) => {
   try {
