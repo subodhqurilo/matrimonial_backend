@@ -262,12 +262,40 @@ export const getCurrentUser = async (req, res) => {
       return res.status(404).json({ success: false, error: "User not found" });
     }
 
-    res.status(200).json({ success: true, user });
+    // ✅ Required fields check
+    const requiredFields = [
+      "firstName",
+      "lastName",
+      "dateOfBirth",
+      "gender",
+      "maritalStatus",
+      "religion",
+      "motherTongue",
+      "country",
+      "state",
+      "city",
+      "highestEducation",
+      "employedIn",
+      "annualIncome",
+      "designation",
+      "profileImage"
+    ];
+
+    const isProfileComplete = requiredFields.every(
+      (field) => user[field] && user[field] !== ""
+    );
+
+    res.status(200).json({
+      success: true,
+      user,
+      isProfileComplete, // ✅ new field
+    });
   } catch (err) {
     console.error("Error in getCurrentUser:", err);
     res.status(500).json({ success: false, error: "Internal server error" });
   }
 };
+
 
 
 /* ------------------- Admin ------------------- */
