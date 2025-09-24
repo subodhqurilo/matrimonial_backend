@@ -82,24 +82,17 @@ export const getUserFormattedProfile = async (req, res) => {
   try {
     console.log("📩 Incoming Update Body:", JSON.stringify(req.body, null, 2));
     console.log("👤 User ID:", req.userId);
-    const id = req.userId
-    console.log(id)
-    const user = await RegisterModel.findOne({ _id:id });
+    const id = req.userId;
+    const user = await RegisterModel.findOne({ _id: id });
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    // const partnerPreference = await PartnerPreferenceModel.findOne({ userId: user._id });
-
-
-
- 
     const formattedData = {
-        profileImage: user.profileImage || "https://res.cloudinary.com/dppe3ni5z/image/upload/v1234567890/default-profile.png",
-        verifyAadhaar: user.adhaarCard?.isVerified || false,
-
+      profileImage: user.profileImage || "https://res.cloudinary.com/dppe3ni5z/image/upload/v1234567890/default-profile.png",
+      verifyAadhaar: user.adhaarCard?.isVerified || false,
       basicInfo: {
-        postedBy: user.profileFor, 
+        postedBy: user.profileFor,
         firstName: user.firstName,
-        middleName: user.middleName ?user.middleName : "None",
+        middleName: user.middleName ? user.middleName : "None",
         lastName: user.lastName,
         age: user.dateOfBirth ? calculateAge(user.dateOfBirth) : 'N/A',
         maritalStatus: user.maritalStatus,
@@ -130,8 +123,6 @@ export const getUserFormattedProfile = async (req, res) => {
         timeOfBirth: user.timeOfBirth,
         cityOfBirth: user.cityOfBirth,
         zodiacSign: user.zodiacSign || getZodiacSign(user.dateOfBirth) || 'N/A',
-
-        // horoscope: user.horoscope,
       },
       educationDetails: {
         highestDegree: user.highestEducation,
@@ -150,7 +141,7 @@ export const getUserFormattedProfile = async (req, res) => {
         diet: user.diet,
         ownHouse: user.ownHouse ? 'Yes' : 'No',
         ownCar: user.ownCar ? 'Yes' : 'No',
-        smoking: user.smoking ?'Yes' :'No',
+        smoking: user.smoking ? 'Yes' : 'No',
         drinking: user.drinking,
         openToPets: user.openToPets ? 'Yes' : 'No',
         foodICook: user.foodICook,
@@ -163,16 +154,32 @@ export const getUserFormattedProfile = async (req, res) => {
         tvShows: user.tvShows,
         vacationDestination: user.vacationDestination,
       },
-    //   adhaarCard: user.adhaarCard || {},
-    //   partnerPreference: partnerPreference || {},
       aboutMe: user.aboutYourself,
     };
 
-    res.status(200).json({ success: true, data: formattedData });
+    // ✅ Check if profile is complete
+    const requiredFields = [
+      'firstName', 'lastName', 'profileFor', 'maritalStatus', 'religion',
+      'motherTongue', 'community', 'familyType', 'highestEducation',
+      'designation', 'annualIncome'
+    ];
+
+    const isProfileComplete = requiredFields.every(field => {
+      const value = user[field];
+      return value !== undefined && value !== null && value !== '' && value !== 'None';
+    });
+
+    res.status(200).json({
+      success: true,
+      data: formattedData,
+      isProfileComplete, // <-- new field
+    });
+
   } catch (error) {
     res.status(500).json({ message: 'Server Error', error: error.message });
   }
 };
+
 
 
  
