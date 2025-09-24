@@ -65,12 +65,7 @@ export const getUserPublicProfileById = async (req, res) => {
       dateOfBirth: user.dateOfBirth?.toISOString().split('T')[0],
       timeOfBirth: user.timeOfBirth,
       lastSeen: moment(user.updatedAt).fromNow(),
-      horoscope: {
-        rashi: user.horoscope?.rashi || '',
-        nakshatra: user.horoscope?.nakshatra || '',
-        matchRequired: user.horoscope?.matchRequired || '',
-        manglik: user.manglik || ''
-      }
+      
     };
 
     res.status(200).json({ success: true, profile: responseData });
@@ -198,120 +193,179 @@ export const updateUserFormattedProfile = async (req, res) => {
     const user = await RegisterModel.findById(userId);
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    // ✅ Basic Info
+    // --------------------------
+    // Basic Info
     if (basicInfo) {
-      user.profileFor = basicInfo.postedBy;
-      user.firstName = basicInfo.firstName;
-      user.middleName = basicInfo.middleName !== 'None' ? basicInfo.middleName : '';
-      user.lastName = basicInfo.lastName;
-      user.maritalStatus = basicInfo.maritalStatus;
+      user.profileFor = basicInfo.postedBy || user.profileFor;
+      user.firstName = basicInfo.firstName || user.firstName;
+      user.middleName = basicInfo.middleName && basicInfo.middleName !== 'None' ? basicInfo.middleName : '';
+      user.lastName = basicInfo.lastName || user.lastName;
+      user.maritalStatus = basicInfo.maritalStatus || user.maritalStatus;
       user.anyDisability = basicInfo.anyDisability === 'Yes';
-      user.weight = basicInfo.weight !== 'None' ? basicInfo.weight : '';
-      user.complexion = basicInfo.complexion !== 'None' ? basicInfo.complexion : '';
-      user.healthInformation = basicInfo.healthInformation !== 'None' ? basicInfo.healthInformation : '';
-      user.height = basicInfo.height;
+      user.weight = basicInfo.weight && basicInfo.weight !== 'None' ? basicInfo.weight : '';
+      user.complexion = basicInfo.complexion && basicInfo.complexion !== 'None' ? basicInfo.complexion : '';
+      user.healthInformation = basicInfo.healthInformation && basicInfo.healthInformation !== 'None' ? basicInfo.healthInformation : '';
+      user.height = basicInfo.height || user.height;
     }
 
-    // ✅ Religion Details
+    // --------------------------
+    // Religion Details
     if (religionDetails) {
-      user.religion = religionDetails.religion;
-      user.motherTongue = religionDetails.motherTongue;
-      user.community = religionDetails.community;
+      user.religion = religionDetails.religion || user.religion;
+      user.motherTongue = religionDetails.motherTongue || user.motherTongue;
+      user.community = religionDetails.community || user.community;
       user.casteNoBar = religionDetails.casteNoBar === 'Yes';
-      user.gothra = religionDetails.gothra !== 'Not Specified' ? religionDetails.gothra : '';
+      user.gothra = religionDetails.gothra && religionDetails.gothra !== 'Not Specified' ? religionDetails.gothra : '';
     }
 
-    // ✅ Family Details
+    // --------------------------
+    // Family Details
     if (familyDetails) {
-      user.familyType = familyDetails.familyBackground;
-      user.fatherOccupation = familyDetails.fatherOccupation;
-      user.motherOccupation = familyDetails.motherOccupation;
-      user.brother = familyDetails.brother;
-      user.sister = familyDetails.sister;
-      user.familyBasedOutOf = familyDetails.familyBasedOutOf !== 'Not Specified' ? familyDetails.familyBasedOutOf : '';
+      user.familyType = familyDetails.familyBackground || user.familyType;
+      user.fatherOccupation = familyDetails.fatherOccupation || user.fatherOccupation;
+      user.motherOccupation = familyDetails.motherOccupation || user.motherOccupation;
+      user.brother = familyDetails.brother || user.brother;
+      user.sister = familyDetails.sister || user.sister;
+      user.familyBasedOutOf = familyDetails.familyBasedOutOf && familyDetails.familyBasedOutOf !== 'Not Specified' ? familyDetails.familyBasedOutOf : '';
     }
 
-    // ✅ Astro Details
-// ✅ Astro Details
-if (astroDetails) {
-  user.manglik = astroDetails.manglik;
-  if (astroDetails.dateOfBirth) {
-    user.dateOfBirth = new Date(astroDetails.dateOfBirth);
-    user.zodiacSign = getZodiacSign(user.dateOfBirth); // ✅ save zodiac
-  }
-  user.timeOfBirth = astroDetails.timeOfBirth;
-  user.cityOfBirth = astroDetails.cityOfBirth;
-}
+    // --------------------------
+    // Astro Details
+    if (astroDetails) {
+      user.manglik = astroDetails.manglik;
+      if (astroDetails.dateOfBirth) {
+        user.dateOfBirth = new Date(astroDetails.dateOfBirth);
+        user.zodiacSign = getZodiacSign(user.dateOfBirth);
+      }
+      user.timeOfBirth = astroDetails.timeOfBirth;
+      user.cityOfBirth = astroDetails.cityOfBirth;
+    }
 
-    // ✅ Education Details
+    // --------------------------
+    // Education
     if (educationDetails) {
-      user.highestEducation = educationDetails.highestDegree;
-      user.postGraduation = educationDetails.postGraduation;
-      user.underGraduation = educationDetails.underGraduation;
-      user.school = educationDetails.school;
-      user.schoolStream = educationDetails.schoolStream;
+      user.highestEducation = educationDetails.highestDegree || user.highestEducation;
+      user.postGraduation = educationDetails.postGraduation || user.postGraduation;
+      user.underGraduation = educationDetails.underGraduation || user.underGraduation;
+      user.school = educationDetails.school || user.school;
+      user.schoolStream = educationDetails.schoolStream || user.schoolStream;
     }
 
-    // ✅ Career Details
+    // --------------------------
+    // Career
     if (careerDetails) {
-      user.employedIn = careerDetails.employedIn;
-      user.designation = careerDetails.occupation;
-      user.company = careerDetails.company;
-      user.annualIncome = careerDetails.annualIncome;
+      user.employedIn = careerDetails.employedIn || user.employedIn;
+      user.designation = careerDetails.occupation || user.designation;
+      user.company = careerDetails.company || user.company;
+      user.annualIncome = careerDetails.annualIncome || user.annualIncome;
     }
 
-    // ✅ Lifestyle and Hobbies
+    // --------------------------
+    // Lifestyle & Hobbies (normalize arrays & booleans)
     if (lifestyleHobbies) {
-      user.diet = lifestyleHobbies.diet;
+      const normalizeArray = arr => Array.isArray(arr) ? arr : [];
+
+      user.diet = lifestyleHobbies.diet || '';
       user.ownHouse = lifestyleHobbies.ownHouse === 'Yes';
       user.ownCar = lifestyleHobbies.ownCar === 'Yes';
-      user.smoking = lifestyleHobbies.smoking;
-      user.drinking = lifestyleHobbies.drinking;
+      user.smoking = lifestyleHobbies.smoking || '';
+      user.drinking = lifestyleHobbies.drinking || '';
       user.openToPets = lifestyleHobbies.openToPets === 'Yes';
-      user.foodICook = lifestyleHobbies.foodICook;
-      user.hobbies = lifestyleHobbies.hobbies;
-      user.interests = lifestyleHobbies.interests;
-      user.favoriteMusic = lifestyleHobbies.favoriteMusic;
-      user.sports = lifestyleHobbies.sports;
-      user.cuisine = lifestyleHobbies.cuisine;
-      user.movies = lifestyleHobbies.movies;
-      user.tvShows = lifestyleHobbies.tvShows;
-      user.vacationDestination = lifestyleHobbies.vacationDestination;
+      user.foodICook = normalizeArray(lifestyleHobbies.foodICook);
+      user.hobbies = normalizeArray(lifestyleHobbies.hobbies);
+      user.interests = normalizeArray(lifestyleHobbies.interests);
+      user.favoriteMusic = normalizeArray(lifestyleHobbies.favoriteMusic);
+      user.sports = normalizeArray(lifestyleHobbies.sports);
+      user.cuisine = normalizeArray(lifestyleHobbies.cuisine);
+      user.movies = normalizeArray(lifestyleHobbies.movies);
+      user.tvShows = normalizeArray(lifestyleHobbies.tvShows);
+      user.vacationDestination = normalizeArray(lifestyleHobbies.vacationDestination);
     }
 
-    
-    if (aboutMe !== undefined) {
-  user.aboutYourself = aboutMe;
-}
-
-
+    if (aboutMe !== undefined) user.aboutYourself = aboutMe;
 
     await user.save();
 
-res.status(200).json({
-  success: true,
-  message: 'Profile updated successfully',
-    data: {
-    basicInfo: user.basicInfo,
-    religionDetails: user.religionDetails,
-    familyDetails: user.familyDetails,
-    astroDetails: {
-      ...astroDetails,
-      zodiacSign: user.zodiacSign || getZodiacSign(user.dateOfBirth),
-    },
-    educationDetails: user.educationDetails,
-    careerDetails: user.careerDetails,
-    lifestyleHobbies: user.lifestyleHobbies,
-    aboutMe: user.aboutYourself,
-  },
-
-});
+    // --------------------------
+    // Send proper response with actual saved values
+    res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      data: {
+        basicInfo: {
+          postedBy: user.profileFor,
+          firstName: user.firstName,
+          middleName: user.middleName || 'None',
+          lastName: user.lastName,
+          maritalStatus: user.maritalStatus,
+          anyDisability: user.anyDisability ? 'Yes' : 'None',
+          weight: user.weight || 'None',
+          complexion: user.complexion || 'None',
+          healthInformation: user.healthInformation || 'None',
+          height: user.height,
+        },
+        religionDetails: {
+          religion: user.religion,
+          motherTongue: user.motherTongue,
+          community: user.community,
+          casteNoBar: user.casteNoBar ? 'Yes' : 'No',
+          gothra: user.gothra || 'Not Specified',
+        },
+        familyDetails: {
+          familyBackground: user.familyType,
+          fatherOccupation: user.fatherOccupation,
+          motherOccupation: user.motherOccupation,
+          brother: user.brother,
+          sister: user.sister,
+          familyBasedOutOf: user.familyBasedOutOf || 'Not Specified',
+        },
+        astroDetails: {
+          manglik: user.manglik,
+          dateOfBirth: user.dateOfBirth ? user.dateOfBirth.toISOString().split('T')[0] : null,
+          timeOfBirth: user.timeOfBirth,
+          cityOfBirth: user.cityOfBirth,
+          zodiacSign: user.zodiacSign || getZodiacSign(user.dateOfBirth),
+        },
+        educationDetails: {
+          highestDegree: user.highestEducation,
+          postGraduation: user.postGraduation,
+          underGraduation: user.underGraduation,
+          school: user.school,
+          schoolStream: user.schoolStream,
+        },
+        careerDetails: {
+          employedIn: user.employedIn,
+          occupation: user.designation,
+          company: user.company,
+          annualIncome: user.annualIncome,
+        },
+        lifestyleHobbies: {
+          diet: user.diet,
+          ownHouse: user.ownHouse ? 'Yes' : 'No',
+          ownCar: user.ownCar ? 'Yes' : 'No',
+          smoking: user.smoking,
+          drinking: user.drinking,
+          openToPets: user.openToPets ? 'Yes' : 'No',
+          foodICook: user.foodICook,
+          hobbies: user.hobbies,
+          interests: user.interests,
+          favoriteMusic: user.favoriteMusic,
+          sports: user.sports,
+          cuisine: user.cuisine,
+          movies: user.movies,
+          tvShows: user.tvShows,
+          vacationDestination: user.vacationDestination,
+        },
+        aboutMe: user.aboutYourself,
+      },
+    });
 
   } catch (error) {
     console.error('Update Error:', error);
     res.status(500).json({ success: false, message: 'Server Error', error: error.message });
   }
 };
+
 
  export const updateProfileImagesOnly = async (req, res) => {
   try {
