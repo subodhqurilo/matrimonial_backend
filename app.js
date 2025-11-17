@@ -44,6 +44,13 @@ app.use('/api/mutual-matches',mutualRouter)
 app.use('/admin',adminRoute)
 
 
+app.get("/", (req, res) => {
+  res.json({
+    success: true,
+    message: "Matrimonial Backend Running Successfully 🚀",
+    version: "1.0.0",
+  });
+});
 
 
 export default app; 

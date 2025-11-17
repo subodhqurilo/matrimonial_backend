@@ -61,45 +61,50 @@ export const updateProfileImagesOnly = async (req, res) => {
   try {
     const userId = req.userId;
 
-    const profileImage = req.files?.['profileImage']?.[0]?.path;
+    // Image from multer-cloudinary
+    const profileImage = req.files?.["profileImage"]?.[0]?.path;
 
     if (!profileImage) {
       return res.status(400).json({
         success: false,
-        message: 'No images provided',
+        message: "No profile image provided",
       });
     }
 
+    // Find user
     const user = await RegisterModel.findById(userId);
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: "User not found",
       });
     }
 
-    const updateData = {};
+    const updateData = {
+      profileImage,
+    };
 
-    if (profileImage) updateData.profileImage = profileImage;
+    // Update user
+    const updatedUser = await RegisterModel.findByIdAndUpdate(
+      userId,
+      updateData,
+      { new: true }
+    );
 
- 
-
-    const updatedUser = await RegisterModel.findByIdAndUpdate(userId, updateData, {
-      new: true,
-    });
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: 'Profile images updated successfully',
-      // data: updatedUser,
+      message: "Profile image updated successfully",
+      data: updatedUser, // ⭐ RETURN THE UPDATED USER
     });
 
   } catch (error) {
-    console.error('[Image Update Error]', error);
-    res.status(500).json({
+    console.error("[Image Update Error]", error);
+    return res.status(500).json({
       success: false,
-      message: 'Server Error',
+      message: "Server Error",
+      error: error.message,
     });
   }
 };
+
 
