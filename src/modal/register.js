@@ -30,7 +30,18 @@ colorComplex: { type: String },
   profileFor: { type: String },
  
   dateOfBirth: { type: Date },
-gender: { type: String, enum: ['Male', 'Female'] },
+gender: {
+  type: String,
+  enum: ['Male', 'Female'],
+  set: (v) => {
+    if (!v) return v;
+    const clean = v.trim().toLowerCase();
+    if (clean === "male") return "Male";
+    if (clean === "female") return "Female";
+    return v;
+  }
+},
+
 personalFirstName:{type:String},
 personalLastName:{type:String},
 personalMiddleName:{type:String},

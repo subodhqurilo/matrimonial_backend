@@ -193,21 +193,22 @@ export const requestLoginOtp = async (req, res) => {
     const otp = Math.floor(1000 + Math.random() * 9000).toString();
 
     // Save OTP
-    await OtpModel.create({
-      mobile,
-      otp
-    });
+    await OtpModel.create({ mobile, otp });
 
     // Send OTP to mobile
     await sendOtpToPhone(mobile, otp);
 
+    // ⭐ Print OTP in Terminal
+    console.log(`📩 Login OTP for ${mobile}: ${otp}`);
+
     return res.status(200).json({
       success: true,
       message: "OTP sent successfully",
-      otp,      // ⭐ As requested: Send OTP in response
+      otp, // ⭐ OTP also in API response
     });
 
   } catch (error) {
+    console.error("Login OTP Error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to send OTP",
@@ -215,6 +216,7 @@ export const requestLoginOtp = async (req, res) => {
     });
   }
 };
+
 
 
 // Verify OTP & Login

@@ -5,6 +5,14 @@ import upload from '../middlewares/multer.js';
 
 const additionalDetail = express.Router();
 
+// ⭐ 0️⃣ Get root route (IMPORTANT TO FIX BROWSER ERROR)
+additionalDetail.get("/", (req, res) => {
+  res.json({
+    success: true,
+    message: "Basic Details API Running. Use PUT /api/basic-details to update profile image.",
+  });
+});
+
 // 1️⃣ Update ONLY profile image
 additionalDetail.put(
   '/',

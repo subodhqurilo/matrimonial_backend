@@ -179,6 +179,7 @@ export const getUserFormattedProfile = async (req, res) => {
 export const updateUserFormattedProfile = async (req, res) => {
   try {
     const userId = req.userId;
+
     const {
       basicInfo,
       religionDetails,
@@ -190,144 +191,196 @@ export const updateUserFormattedProfile = async (req, res) => {
       aboutMe,
     } = req.body;
 
-    const user = await RegisterModel.findById(userId);
-    if (!user) return res.status(404).json({ message: 'User not found' });
+    let user = await RegisterModel.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
 
-    // ✅ Basic Info
+    // 1️⃣ BASIC INFO
     if (basicInfo) {
-      user.profileFor = basicInfo.postedBy;
-      user.firstName = basicInfo.firstName;
-      user.middleName = basicInfo.middleName !== 'None' ? basicInfo.middleName : '';
-      user.lastName = basicInfo.lastName;
-      user.maritalStatus = basicInfo.maritalStatus;
-      user.anyDisability = basicInfo.anyDisability === 'Yes';
-      user.weight = basicInfo.weight !== 'None' ? basicInfo.weight : '';
-      user.complexion = basicInfo.complexion !== 'None' ? basicInfo.complexion : '';
-      user.healthInformation = basicInfo.healthInformation !== 'None' ? basicInfo.healthInformation : '';
-      user.height = basicInfo.height;
+      Object.assign(user, {
+        profileFor: basicInfo.postedBy || user.profileFor,
+        firstName: basicInfo.firstName || user.firstName,
+        middleName: basicInfo.middleName === "None" ? "" : basicInfo.middleName,
+        lastName: basicInfo.lastName || user.lastName,
+        maritalStatus: basicInfo.maritalStatus || user.maritalStatus,
+        anyDisability: basicInfo.anyDisability === "Yes",
+        weight: basicInfo.weight === "None" ? "" : basicInfo.weight,
+        complexion: basicInfo.complexion === "None" ? "" : basicInfo.complexion,
+        healthInformation:
+          basicInfo.healthInformation === "None"
+            ? ""
+            : basicInfo.healthInformation,
+        height: basicInfo.height || user.height,
+        dateOfBirth: basicInfo.dateOfBirth
+          ? new Date(basicInfo.dateOfBirth)
+          : user.dateOfBirth,
+        gender: basicInfo.gender || user.gender,
+      });
     }
 
-    // ✅ Religion Details
+    // 2️⃣ RELIGION DETAILS
     if (religionDetails) {
-      user.religion = religionDetails.religion;
-      user.motherTongue = religionDetails.motherTongue;
-      user.community = religionDetails.community;
-      user.casteNoBar = religionDetails.casteNoBar === 'Yes';
-      user.gothra = religionDetails.gothra !== 'Not Specified' ? religionDetails.gothra : '';
+      Object.assign(user, {
+        religion: religionDetails.religion || user.religion,
+        caste: religionDetails.caste || user.caste,
+        community: religionDetails.community || user.community,
+        gothra:
+          religionDetails.gothra === "Not Specified"
+            ? ""
+            : religionDetails.gothra,
+        motherTongue:
+          religionDetails.motherTongue || user.motherTongue,
+        casteNoBar: religionDetails.casteNoBar === "Yes",
+      });
     }
 
-    // ✅ Family Details
+    // 3️⃣ FAMILY DETAILS
     if (familyDetails) {
-      user.familyType = familyDetails.familyBackground;
-      user.fatherOccupation = familyDetails.fatherOccupation;
-      user.motherOccupation = familyDetails.motherOccupation;
-      user.brother = familyDetails.brother;
-      user.sister = familyDetails.sister;
-      user.familyBasedOutOf = familyDetails.familyBasedOutOf !== 'Not Specified' ? familyDetails.familyBasedOutOf : '';
+      Object.assign(user, {
+        familyType: familyDetails.familyType || user.familyType,
+        familyStatus: familyDetails.familyStatus || user.familyStatus,
+        fatherOccupation: familyDetails.fatherOccupation || user.fatherOccupation,
+        motherOccupation: familyDetails.motherOccupation || user.motherOccupation,
+        brother: familyDetails.brother ?? user.brother,
+        sister: familyDetails.sister ?? user.sister,
+        state: familyDetails.state || user.state,
+        city: familyDetails.city || user.city,
+      });
     }
 
-    // ✅ Astro Details
+    // 4️⃣ ASTRO DETAILS
     if (astroDetails) {
-      user.manglik = astroDetails.manglik;
-      user.dateOfBirth = astroDetails.dateOfBirth ? new Date(astroDetails.dateOfBirth) : user.dateOfBirth;
-
-      user.timeOfBirth = astroDetails.timeOfBirth;
-      user.cityOfBirth = astroDetails.cityOfBirth;
+      Object.assign(user, {
+        manglik: astroDetails.manglik || user.manglik,
+        timeOfBirth: astroDetails.timeOfBirth || user.timeOfBirth,
+        cityOfBirth: astroDetails.cityOfBirth || user.cityOfBirth,
+        dateOfBirth: astroDetails.dateOfBirth
+          ? new Date(astroDetails.dateOfBirth)
+          : user.dateOfBirth,
+      });
     }
 
-    // ✅ Education Details
+    // 5️⃣ EDUCATION DETAILS
     if (educationDetails) {
-      user.highestEducation = educationDetails.highestDegree;
-      user.postGraduation = educationDetails.postGraduation;
-      user.underGraduation = educationDetails.underGraduation;
-      user.school = educationDetails.school;
-      user.schoolStream = educationDetails.schoolStream;
+      Object.assign(user, {
+        highestEducation:
+          educationDetails.highestEducation || user.highestEducation,
+        postGraduation: educationDetails.postGraduation || user.postGraduation,
+        underGraduation:
+          educationDetails.underGraduation || user.underGraduation,
+        school: educationDetails.school || user.school,
+        schoolStream: educationDetails.schoolStream || user.schoolStream,
+      });
     }
 
-    // ✅ Career Details
+    // 6️⃣ CAREER DETAILS
     if (careerDetails) {
-      user.employedIn = careerDetails.employedIn;
-      user.designation = careerDetails.occupation;
-      user.company = careerDetails.company;
-      user.annualIncome = careerDetails.annualIncome;
+      Object.assign(user, {
+        employedIn: careerDetails.employedIn || user.employedIn,
+        designation: careerDetails.designation || user.designation,
+        company: careerDetails.company || user.company,
+        annualIncome: careerDetails.annualIncome || user.annualIncome,
+      });
     }
 
-    // ✅ Lifestyle and Hobbies
+    // 7️⃣ LIFESTYLE & HOBBIES
     if (lifestyleHobbies) {
-      user.diet = lifestyleHobbies.diet;
-      user.ownHouse = lifestyleHobbies.ownHouse === 'Yes';
-      user.ownCar = lifestyleHobbies.ownCar === 'Yes';
-      user.smoking = lifestyleHobbies.smoking;
-      user.drinking = lifestyleHobbies.drinking;
-      user.openToPets = lifestyleHobbies.openToPets === 'Yes';
-      user.foodICook = lifestyleHobbies.foodICook;
-      user.hobbies = lifestyleHobbies.hobbies;
-      user.interests = lifestyleHobbies.interests;
-      user.favoriteMusic = lifestyleHobbies.favoriteMusic;
-      user.sports = lifestyleHobbies.sports;
-      user.cuisine = lifestyleHobbies.cuisine;
-      user.movies = lifestyleHobbies.movies;
-      user.tvShows = lifestyleHobbies.tvShows;
-      user.vacationDestination = lifestyleHobbies.vacationDestination;
+      Object.assign(user, {
+        diet: lifestyleHobbies.diet || user.diet,
+        ownHouse: lifestyleHobbies.ownHouse === "Yes",
+        ownCar: lifestyleHobbies.ownCar === "Yes",
+        smoking: lifestyleHobbies.smoking || user.smoking,
+        drinking: lifestyleHobbies.drinking || user.drinking,
+        openToPets: lifestyleHobbies.openToPets === "Yes",
+        foodICook: lifestyleHobbies.foodICook || user.foodICook,
+        hobbies: lifestyleHobbies.hobbies || user.hobbies,
+        interests: lifestyleHobbies.interests || user.interests,
+        favoriteMusic: lifestyleHobbies.favoriteMusic || user.favoriteMusic,
+        sports: lifestyleHobbies.sports || user.sports,
+        cuisine: lifestyleHobbies.cuisine || user.cuisine,
+        movies: lifestyleHobbies.movies || user.movies,
+        tvShows: lifestyleHobbies.tvShows || user.tvShows,
+        vacationDestination:
+          lifestyleHobbies.vacationDestination || user.vacationDestination,
+      });
     }
 
-    // ✅ About Me
-    user.aboutYourself = aboutMe;
+    // 8️⃣ ABOUT ME
+    if (aboutMe) {
+      user.aboutYourself = aboutMe;
+    }
 
     await user.save();
 
-    res.status(200).json({ success: true, message: 'Profile updated successfully' });
+    res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      user,
+    });
+
   } catch (error) {
-    console.error('Update Error:', error);
-    res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+    console.error("Update Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
   }
 };
 
- export const updateProfileImagesOnly = async (req, res) => {
+
+export const updateProfileImagesOnly = async (req, res) => {
   try {
     const userId = req.userId;
 
-    const profileImage = req.files?.['profileImage']?.[0]?.path;
+    // File from multer-cloudinary
+    const profileImage = req.files?.["profileImage"]?.[0]?.path;
 
     if (!profileImage) {
       return res.status(400).json({
         success: false,
-        message: 'No images provided',
+        message: "No profile image provided",
       });
     }
 
+    // Fetch user
     const user = await RegisterModel.findById(userId);
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: "User not found",
       });
     }
 
-    const updateData = {};
+    // OPTIONAL: Delete previous image from cloudinary if exists
+    // -------------------------------------------
+    // if (user.profileImage) {
+    //   const publicId = user.profileImage.split("/").pop().split(".")[0];
+    //   await cloudinary.uploader.destroy(`register_profiles/${publicId}`);
+    // }
+    // -------------------------------------------
 
-    if (profileImage) updateData.profileImage = profileImage;
+    // Update Image
+    user.profileImage = profileImage;
+    await user.save();
 
- 
-
-    const updatedUser = await RegisterModel.findByIdAndUpdate(userId, updateData, {
-      new: true,
-    });
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: 'Profile images updated successfully',
-      data: updatedUser,
+      message: "Profile image updated successfully",
+      user,   // return full updated user
     });
 
   } catch (error) {
-    console.error('[Image Update Error]', error);
-    res.status(500).json({
+    console.error("[Image Update Error]", error);
+    return res.status(500).json({
       success: false,
-      message: 'Server Error',
+      message: "Server Error",
+      error: error.message,
     });
   }
 };
+
 
 function getZodiacSign(date) {
   if (!date) return 'N/A';

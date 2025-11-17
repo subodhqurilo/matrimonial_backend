@@ -26,12 +26,14 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use('/auth',authRoute)
+app.use('/api/basic-details',additionalDetail)
+
 app.use('/api/request',accountRouter)
 app.use('/api/like',likeRoute)
 app.use('/api/recommendation', recommendationRoute);
 app.use('/api/message', messageRoutes);
 app.use('/api/partner',partnerRoute)
-app.use('/api/basic-details',additionalDetail)
+
 app.use('/api/user',reportRouter)
 app.use('/api/master',materRoute)
 app.use('/api/match',matchesRoute)
