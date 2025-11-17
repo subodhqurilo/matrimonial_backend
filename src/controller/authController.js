@@ -169,25 +169,53 @@ export const verifyOtpAndRegister = async (req, res) => {
 export const requestLoginOtp = async (req, res) => {
   try {
     const { mobile } = req.body;
-    
-    if (!mobile) return res.status(400).json({ success: false, message: "Mobile is required" });
 
+    if (!mobile) {
+      return res.status(400).json({
+        success: false,
+        message: "Mobile is required"
+      });
+    }
+
+    // Check user exists
     const user = await RegisterModel.findOne({ mobile });
-    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
 
+    // Delete old OTP for this number
+    await OtpModel.deleteMany({ mobile });
+
+    // Generate OTP
     const otp = Math.floor(1000 + Math.random() * 9000).toString();
 
     // Save OTP
-    await OtpModel.create({ mobile, otp });
+    await OtpModel.create({
+      mobile,
+      otp
+    });
 
-    // Send OTP
+    // Send OTP to mobile
     await sendOtpToPhone(mobile, otp);
 
-    res.status(200).json({ success: true, message: "OTP sent successfully",otp });
+    return res.status(200).json({
+      success: true,
+      message: "OTP sent successfully",
+      otp,      // ⭐ As requested: Send OTP in response
+    });
+
   } catch (error) {
-    res.status(500).json({ success: false, message: "Failed to send OTP", error: error.message });
+    return res.status(500).json({
+      success: false,
+      message: "Failed to send OTP",
+      error: error.message
+    });
   }
 };
+
 
 // Verify OTP & Login
 export const login = async (req, res) => {
