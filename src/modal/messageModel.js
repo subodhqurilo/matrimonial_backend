@@ -30,32 +30,68 @@ const messageSchema = new mongoose.Schema(
     messageText: {
       type: String,
       trim: true,
-      default: "", // ✅ allow empty if only files are sent
+      default: "",
     },
-    files: [messageFileSchema], // ✅ support multiple file uploads
+    files: [messageFileSchema],
+
     status: {
       type: String,
       enum: ["sent", "delivered", "read"],
       default: "sent",
-      index: true, // fast lookup for unread
+      index: true,
     },
+
+    // ADD THIS 👇
+deletedFor: {
+  type: [mongoose.Schema.Types.ObjectId],
+  default: [],
+},
+
+
+    // Optional soft delete (you can keep)
     deletedAt: {
       type: Date,
-      default: null, // null → active, not deleted
+      default: null,
     },
   },
   { timestamps: true }
 );
 
-// ✅ Query helper to auto-exclude soft-deleted
-messageSchema.query.notDeleted = function () {
-  return this.where({ deletedAt: null });
+// 👇 Only show messages not deleted for the current user AND not soft-deleted
+messageSchema.query.notDeletedForUser = function (userId) {
+  return this.where({
+    deletedAt: null,
+    deletedFor: { $ne: userId },
+  });
 };
 
-// ✅ Indexes for faster queries
-messageSchema.index({ conversationId: 1, createdAt: -1 }); // get chat history fast
+messageSchema.index({ conversationId: 1, createdAt: -1 });
 messageSchema.index({ senderId: 1, receiverId: 1, createdAt: -1 });
-messageSchema.index({ receiverId: 1, status: 1 }); // unread lookup
+messageSchema.index({ receiverId: 1, status: 1 });
 
 const messageModel = mongoose.model("Message", messageSchema);
 export default messageModel;
+
+export const deleteChat = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { otherUserId } = req.body;
+
+    const conversationId = [String(userId), String(otherUserId)]
+      .sort()
+      .join("_");
+
+    await messageModel.updateMany(
+      { conversationId },
+      { $addToSet: { deletedFor: userId } }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Chat deleted for you.",
+    });
+  } catch (error) {
+    console.error("Error in deleteChat:", error);
+    res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};

@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import messageModel from "./src/modal/messageModel.js";
+import RegisterModel from "./src/modal/register.js";
 
 // Track online users (userId -> Set<socketId>)
 const onlineUsers = new Map();

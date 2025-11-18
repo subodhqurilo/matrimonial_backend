@@ -142,7 +142,12 @@ zodiacSign:{type:String},
 status:{
   type:Boolean,
   default:false
-}
+},
+blockedUsers: {
+  type: [mongoose.Schema.Types.ObjectId],
+  ref: "Register",
+  default: [],
+},
 
 }, { timestamps: true });
 
