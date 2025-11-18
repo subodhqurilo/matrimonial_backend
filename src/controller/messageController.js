@@ -242,3 +242,93 @@ export const getAllRequestsExceptMine = async (req, res) => {
       .json({ success: false, message: "Internal server error" });
   }
 };
+export const getChatList = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const filter = req.query.filter || "all";
+
+    const onlineIds = new Set(getOnlineUserIds());
+
+    // 1️⃣ Fetch accepted matches (always needed)
+    const accepted = await AccountRequestModel.find({
+      $or: [{ requesterId: userId }, { receiverId: userId }],
+    })
+      .populate("requesterId", "firstName lastName profileImage")
+      .populate("receiverId", "firstName lastName profileImage");
+
+    let finalUsers = [];
+
+    for (const reqDoc of accepted) {
+      const other =
+        String(reqDoc.requesterId._id) === String(userId)
+          ? reqDoc.receiverId
+          : reqDoc.requesterId;
+
+      const otherId = String(other._id);
+      const conversationId = [userId, otherId].sort().join("_");
+
+      // 🟦 last message
+      const lastMsg = await messageModel
+        .findOne({ conversationId })
+        .sort({ createdAt: -1 });
+
+      // 🟦 unread count
+      const unread = await messageModel.countDocuments({
+        conversationId,
+        receiverId: userId,
+        status: { $ne: "read" },
+      });
+
+      // 🟦 online
+      const online = onlineIds.has(otherId);
+
+      // Store base data
+      const obj = {
+        _id: otherId,
+        firstName: other.firstName,
+        lastName: other.lastName,
+        profileImage: other.profileImage,
+        lastMessage: lastMsg?.messageText || "",
+        time: lastMsg?.createdAt || null,
+        unread,
+        online,
+        status: reqDoc.status,
+      };
+
+      finalUsers.push(obj);
+    }
+
+    // 2️⃣ APPLY FILTERS
+
+    if (filter === "accepted") {
+      finalUsers = finalUsers.filter((u) => u.status === "accepted");
+    }
+
+    if (filter === "interested") {
+      finalUsers = finalUsers.filter(
+        (u) => u.status !== "accepted" && u.lastMessage !== ""
+      );
+    }
+
+    if (filter === "call") {
+      const callKeywords = ["call", "mobile", "phone", "number"];
+      finalUsers = finalUsers.filter((u) =>
+        callKeywords.some((k) =>
+          u.lastMessage.toLowerCase().includes(k)
+        )
+      );
+    }
+
+    // 3️⃣ Sort by last message time
+    finalUsers.sort((a, b) => new Date(b.time) - new Date(a.time));
+
+    return res.status(200).json({
+      success: true,
+      data: finalUsers,
+    });
+  } catch (error) {
+    console.error("Error in getChatList:", error);
+    res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+

@@ -6,7 +6,8 @@ import {
   getUnreadMessagesCount,
   getOnlineStatus,
   markMessagesAsRead,
-  getAllUser,   // 👈 new
+  getAllUser,  
+  getChatList // 👈 new
 } from '../controller/messageController.js';
 import { authenticateUser } from '../middlewares/authMiddleware.js';
 
@@ -20,5 +21,6 @@ messageRoutes.get('/online', authenticateUser, getOnlineStatus);
 
 // 👇 New endpoint for marking messages as read
 messageRoutes.patch('/markAsRead', authenticateUser, markMessagesAsRead);
+messageRoutes.get("/chatList", authenticateUser, getChatList);
 
 export default messageRoutes;

@@ -95,6 +95,7 @@ export const getReceivedRequests = async (req, res) => {
   const userId = req.userId;
 
   try {
+    // Find all requests received by the logged-in user
     const requests = await AccountRequestModel.find({ receiverId: userId })
       .populate({
         path: 'requesterId',
@@ -102,40 +103,59 @@ export const getReceivedRequests = async (req, res) => {
           id _id firstName lastName dateOfBirth height religion caste occupation
           annualIncome highestEducation currentCity city state currentState motherTongue
           gender profileImage updatedAt createdAt designation
-        `
+        `,
       })
       .sort({ createdAt: -1 });
 
-    const data = requests
-      .map(req => req.requesterId)
-      .filter(user => user) // Avoid nulls in case of deleted users
-      .map(user => ({
+    // Format response
+    const data = requests.flatMap(req => {
+      const user = req.requesterId;
+      if (!user) return []; // Skip if user deleted
+
+      return {
         id: user.id,
         _id: user._id,
-        name: `${user.firstName} ${user.lastName}`,
+        name: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
+
         age: calculateAge(user.dateOfBirth),
-        height: user.height,
-        caste: user.caste,
-        designation: user.designation,
-        religion: user.religion,
-        profession: user.occupation,
-        salary: user.annualIncome,
-        education: user.highestEducation,
-        location: `${user.city || ''}, ${user.state || ''}`,
+
+        height: user.height || null,
+        caste: user.caste || null,
+        designation: user.designation || user.occupation || null,
+        religion: user.religion || null,
+
+        salary: user.annualIncome || null,
+        education: user.highestEducation || null,
+
+        // Best location handling
+        location:
+          (user.city || user.currentCity || '') +
+          (user.state || user.currentState ? `, ${user.state || user.currentState}` : ''),
+
+        // Language conversion
         languages: Array.isArray(user.motherTongue)
           ? user.motherTongue.join(', ')
-          : user.motherTongue,
-        gender: user.gender,
-        profileImage: user.profileImage,
-        lastSeen: user.updatedAt || user.createdAt,
-      }));
+          : user.motherTongue || null,
 
-    res.status(200).json({ success: true, data });
+        gender: user.gender || null,
+        profileImage: user.profileImage || null,
+
+        lastSeen: user.updatedAt || user.createdAt,
+        requestStatus: req.status,
+        requestId: req._id,
+      };
+    });
+
+    return res.status(200).json({ success: true, data });
   } catch (error) {
-    console.error('Error in getReceivedRequests:', error);
-    res.status(500).json({ success: false, message: error.message });
+    console.error('❌ Error in getReceivedRequests:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
+
 
 
 
