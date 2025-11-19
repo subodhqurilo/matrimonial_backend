@@ -5,6 +5,7 @@ import admin from "../modal/adminModal.js";
 import OtpModel from "../modal/OtpModel.js";
 import { sendOtpToPhone } from "../utils/sendOtp.js";
 import User from "../modal/User.js"; // adjust path if needed
+import cloudinary from "cloudinary";
 
 const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key";
 
@@ -277,25 +278,53 @@ export const login = async (req, res) => {
 export const registerDetails = async (req, res) => {
   try {
     const userId = req.userId;
-    const profileImage = req.files?.["profileImage"]?.[0]?.path;
-    const adhaarFront = req.files?.["adhaarCardFrontImage"]?.[0]?.path;
-    const adhaarBack = req.files?.["adhaarCardBackImage"]?.[0]?.path;
 
-    if (Array.isArray(req.body.maritalStatus)) req.body.maritalStatus = req.body.maritalStatus[0];
+    const profileImage = req.files?.profileImage?.[0]?.path;
+    const adhaarFront = req.files?.adhaarCardFrontImage?.[0]?.path;
+    const adhaarBack = req.files?.adhaarCardBackImage?.[0]?.path;
+
+    // Fix: React Native sometimes sends ["Unmarried"]
+    if (Array.isArray(req.body.maritalStatus)) {
+      req.body.maritalStatus = req.body.maritalStatus[0];
+    }
+
+    // Fetch old user data so we don’t wipe old images
+    const user = await RegisterModel.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
 
     const updateData = {
       ...req.body,
-      profileImage,
-      adhaarCard: { frontImage: adhaarFront, backImage: adhaarBack },
     };
 
-    const updatedUser = await RegisterModel.findByIdAndUpdate(userId, updateData, { new: true });
+    // Keep old profile image if new one not uploaded
+    updateData.profileImage = profileImage || user.profileImage;
 
-    res.status(200).json({ success: true, message: "User profile updated", data: updatedUser });
+    // Keep old Aadhar if not uploaded
+    updateData.adhaarCard = {
+      frontImage: adhaarFront || user.adhaarCard?.frontImage || null,
+      backImage: adhaarBack || user.adhaarCard?.backImage || null,
+    };
+
+    const updatedUser = await RegisterModel.findByIdAndUpdate(
+      userId,
+      { $set: updateData },
+      { new: true }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "User profile updated successfully",
+      data: updatedUser,
+    });
+
   } catch (error) {
+    console.error("RegisterDetails Error:", error);
     res.status(500).json({ success: false, message: "Server error", error: error.message });
   }
 };
+
 
 
 
