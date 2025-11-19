@@ -33,6 +33,7 @@ app.use('/api/like',likeRoute)
 app.use('/api/recommendation', recommendationRoute);
 app.use('/api/message', messageRoutes);
 app.use('/api/partner',partnerRoute)
+app.use("/api/report", reportRouter);
 
 app.use('/api/user',reportRouter)
 app.use('/api/master',materRoute)

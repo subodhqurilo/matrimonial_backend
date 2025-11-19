@@ -540,3 +540,49 @@ export const unblockUser = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
+// 📌 GET CHAT HEADER INFO
+// GET /api/message/chatHeader?userId=<otherUserId>
+export const getChatHeader = async (req, res) => {
+  try {
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId is required",
+      });
+    }
+
+    // Fetch user basic details
+    const user = await RegisterModel.findById(userId).select(
+      "firstName lastName profileImage blockedUsers"
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Online status
+    const onlineUsers = new Set(getOnlineUserIds());
+    const isOnline = onlineUsers.has(String(userId));
+
+    res.status(200).json({
+      success: true,
+      data: {
+        _id: user._id,
+        name: `${user.firstName} ${user.lastName}`,
+        profileImage: user.profileImage,
+        online: isOnline,
+      },
+    });
+  } catch (error) {
+    console.error("Error in getChatHeader:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};

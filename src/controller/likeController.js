@@ -13,138 +13,253 @@ const calculateAge = (dob) => {
 
 // this
 export const sendLike = async (req, res) => {
-  const senderId = req.userId;
-  const { receiverId } = req.body;
-
-  if (!senderId || !receiverId || senderId === receiverId) {
-    return res.status(400).json({ message: 'Invalid like request' });
-  }
-
   try {
-    const existingLike = await LikeModel.findOne({ senderId, receiverId });
-    if (existingLike) {
-      return res.status(400).json({ message: 'Already liked' });
+    const senderId = req.userId;
+    const { receiverId } = req.body;
+
+    // ------------------------------
+    // 1️⃣ Basic validations
+  
+    if (!senderId || !receiverId) {
+      return res.status(400).json({
+        success: false,
+        message: "senderId and receiverId are required",
+      });
     }
 
-    const reverseLike = await LikeModel.findOne({ senderId: receiverId, receiverId: senderId });
+    if (senderId.toString() === receiverId.toString()) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot like your own profile",
+      });
+    }
 
-    const newLike = new LikeModel({
+    // ------------------------------
+    // 2️⃣ Check if already liked
+    
+    const existingLike = await LikeModel.findOne({ senderId, receiverId });
+
+    if (existingLike) {
+      return res.status(400).json({
+        success: false,
+        message: "You already liked this user",
+      });
+    }
+
+    // ------------------------------
+    // 3️⃣ Check if reverse like exists (receiver already liked sender)
+    
+    const reverseLike = await LikeModel.findOne({
+      senderId: receiverId,
+      receiverId: senderId,
+    });
+
+    // Determine status
+    const status = reverseLike ? "matched" : "liked";
+
+    // ------------------------------
+    // 4️⃣ Create like entry
+    
+    const newLike = await LikeModel.create({
       userId: senderId,
       senderId,
       receiverId,
-      status: reverseLike ? 'matched' : 'liked',
+      status,
     });
 
-    await newLike.save();
-
-    if (reverseLike && reverseLike.status !== 'matched') {
-      reverseLike.status = 'matched';
+    // ------------------------------
+    // 5️⃣ If reverse like exists → update both to "matched"
+    
+    if (reverseLike && reverseLike.status !== "matched") {
+      reverseLike.status = "matched";
       await reverseLike.save();
     }
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
-      message: reverseLike ? 'It’s a match!' : 'Like sent',
+      message: reverseLike ? "It’s a match!" : "Like sent successfully",
       data: newLike,
     });
+
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error("[SEND LIKE ERROR]", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
   }
 };
+
 
 // this
 export const unlikeUser = async (req, res) => {
-  const senderId = req.userId;
-  const { receiverId } = req.body;
-
-  if (!senderId || !receiverId || senderId === receiverId) {
-    return res.status(400).json({ success: false, message: 'Invalid sender or receiver' });
-  }
-
   try {
+    const senderId = req.userId;
+    const { receiverId } = req.body;
 
-    const like = await LikeModel.findOneAndDelete({ senderId, receiverId });
-
-    if (!like) {
-      return res.status(404).json({ success: false, message: 'Like not found' });
+    // -----------------------------------
+    // 1️⃣ Validate Input
+    // -----------------------------------
+    if (!senderId || !receiverId) {
+      return res.status(400).json({
+        success: false,
+        message: "senderId and receiverId are required",
+      });
     }
 
-    
-    const reverseLike = await LikeModel.findOne({ senderId: receiverId, receiverId: senderId });
+    if (senderId.toString() === receiverId.toString()) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot unlike yourself",
+      });
+    }
 
-    if (reverseLike && reverseLike.status === 'matched') {
-      reverseLike.status = 'liked';
+    // -----------------------------------
+    // 2️⃣ Check if like exists
+    // -----------------------------------
+    const like = await LikeModel.findOne({ senderId, receiverId });
+
+    if (!like) {
+      return res.status(404).json({
+        success: false,
+        message: "Like does not exist",
+      });
+    }
+
+    // -----------------------------------
+    // 3️⃣ Delete the like
+    // -----------------------------------
+    await LikeModel.findOneAndDelete({ senderId, receiverId });
+
+    // -----------------------------------
+    // 4️⃣ Fix reverseLike (if matched → set back to only 'liked')
+    // -----------------------------------
+    const reverseLike = await LikeModel.findOne({
+      senderId: receiverId,
+      receiverId: senderId,
+    });
+
+    if (reverseLike && reverseLike.status === "matched") {
+      reverseLike.status = "liked";
       await reverseLike.save();
     }
 
-    res.status(200).json({ success: true, message: 'Unliked successfully' });
+    // -----------------------------------
+    // 5️⃣ Final Response
+    // -----------------------------------
+    return res.status(200).json({
+      success: true,
+      message: "Unliked successfully",
+    });
+
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error("[UNLIKE ERROR]", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
   }
 };
+
 
 
 // this work proper according to frontend fields 
 
 export const getReceivedLikes = async (req, res) => {
   try {
-    console.log("User ID:", req.userId);
-    const likes = await LikeModel.find({
-      receiverId: req.userId
-    })
-      .populate('senderId', `
-        id _id firstName lastName dateOfBirth height religion caste occupation
-        annualIncome highestEducation currentCity city state currentState motherTongue
-        gender profileImage updatedAt createdAt designation
-      `)
+    const userId = req.userId;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID missing",
+      });
+    }
+
+    // -----------------------------------
+    // 1️⃣ Fetch likes received
+    // -----------------------------------
+    const likes = await LikeModel.find({ receiverId: userId })
+      .populate(
+        "senderId",
+        `
+          id _id firstName lastName dateOfBirth height religion caste occupation
+          annualIncome highestEducation currentCity city state currentState motherTongue
+          gender profileImage updatedAt createdAt designation
+        `
+      )
       .sort({ createdAt: -1 });
 
-    // Age calculation helper
+    // -----------------------------------
+    // 2️⃣ Helper to calculate age
+    // -----------------------------------
     const calculateAge = (dob) => {
+      if (!dob) return null;
+      const birth = new Date(dob);
       const today = new Date();
-      const birthDate = new Date(dob);
-      let age = today.getFullYear() - birthDate.getFullYear();
-      const m = today.getMonth() - birthDate.getMonth();
-      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+      let age = today.getFullYear() - birth.getFullYear();
+      const m = today.getMonth() - birth.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
         age--;
       }
       return age;
     };
 
- const formattedLikes = likes
-  .filter((like) => like.senderId) // Exclude null senderId
-  .map((like) => {
-    const user = like.senderId;
+    // -----------------------------------
+    // 3️⃣ Format response
+    // -----------------------------------
+    const formatted = likes
+      .filter((like) => like.senderId) // avoid null sender
+      .map((like) => {
+        const u = like.senderId;
 
-    return {
-      id: user.id,
-      _id: user._id,
-      name: `${user.firstName} ${user.lastName}`,
-      age: calculateAge(user.dateOfBirth),
-      height: user.height,
-      caste: user.caste,
-      designation: user.designation,
-      religion: user.religion,
-      profession: user.occupation,
-      salary: user.annualIncome,
-      education: user.highestEducation,
-      location: `${user.city || user.currentCity || ''}, ${user.state || user.currentState || ''}`,
-      languages: Array.isArray(user.motherTongue)
-        ? user.motherTongue.join(', ')
-        : user.motherTongue,
-      gender: user.gender,
-      profileImage: user.profileImage,
-      lastSeen: user.updatedAt || user.createdAt,
-    };
-  });
+        const location = [
+          u.city || u.currentCity || "",
+          u.state || u.currentState || "",
+        ]
+          .filter(Boolean)
+          .join(", ");
 
+        return {
+          id: u.id,
+          _id: u._id,
+          name: `${u.firstName || ""} ${u.lastName || ""}`.trim(),
+          age: calculateAge(u.dateOfBirth),
+          height: u.height,
+          caste: u.caste,
+          designation: u.designation,
+          religion: u.religion,
+          profession: u.occupation,
+          salary: u.annualIncome,
+          education: u.highestEducation,
+          location,
+          languages: Array.isArray(u.motherTongue)
+            ? u.motherTongue.join(", ")
+            : u.motherTongue || "",
+          gender: u.gender,
+          profileImage: u.profileImage,
+          lastSeen: u.updatedAt || u.createdAt,
+          likeStatus: like.status, // liked / matched
+        };
+      });
 
-    res.status(200).json({ success: true, like: formattedLikes });
+    return res.status(200).json({
+      success: true,
+      count: formatted.length,
+      likes: formatted,
+    });
   } catch (error) {
-    console.error('Error getting received likes:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error("Error getting received likes:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
   }
 };
+
 
 
 
@@ -153,19 +268,36 @@ export const getReceivedLikes = async (req, res) => {
  // this 
 export const getSentLikes = async (req, res) => {
   try {
-    console.log(req.userId)
-    const likes = await LikeModel.find({ senderId: req.userId })
-      .populate('receiverId', `
-        id firstName lastName dateOfBirth height religion caste occupation
-        annualIncome highestEducation currentCity city state currentState motherTongue
-        gender profileImage updatedAt createdAt designation
-      `)
+    const userId = req.userId;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID missing",
+      });
+    }
+
+    // -----------------------------------
+    // 1️⃣ Fetch likes sent by user
+    // -----------------------------------
+    const likes = await LikeModel.find({ senderId: userId })
+      .populate(
+        "receiverId",
+        `
+          id _id firstName lastName dateOfBirth height religion caste occupation
+          annualIncome highestEducation currentCity city state currentState motherTongue
+          gender profileImage updatedAt createdAt designation
+        `
+      )
       .sort({ createdAt: -1 });
 
-    // Helper function to calculate age
+    // -----------------------------------
+    // 2️⃣ Helper: Age calculator
+    // -----------------------------------
     const calculateAge = (dob) => {
-      const today = new Date();
+      if (!dob) return null;
       const birthDate = new Date(dob);
+      const today = new Date();
       let age = today.getFullYear() - birthDate.getFullYear();
       const m = today.getMonth() - birthDate.getMonth();
       if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
@@ -174,37 +306,60 @@ export const getSentLikes = async (req, res) => {
       return age;
     };
 
-    const formattedLikes = likes.map((like) => {
-      const user = like.receiverId;
+    // -----------------------------------
+    // 3️⃣ Format Response
+    // -----------------------------------
+    const formatted = likes
+      .filter((like) => like.receiverId) // avoid null profiles
+      .map((like) => {
+        const u = like.receiverId;
 
-      return {
-        id: user.id,
-        _id: user._id,
-        name: `${user.firstName} ${user.lastName}`,
-        age: calculateAge(user.dateOfBirth),
-        height: user.height,
-        caste: user.caste,
-        designation: user.designation,
-        religion: user.religion,
-        profession: user.occupation,
-        salary: user.annualIncome,
-        education: user.highestEducation,
-        location: `${user.city || user.currentCity || ''}, ${user.state || user.currentState || ''}`,
-        languages: Array.isArray(user.motherTongue)
-          ? user.motherTongue.join(', ')
-          : user.motherTongue,
-        gender: user.gender,
-        profileImage: user.profileImage,
-        lastSeen: user.updatedAt || user.createdAt,
-      };
+        const location = [
+          u.city || u.currentCity || "",
+          u.state || u.currentState || "",
+        ]
+          .filter(Boolean)
+          .join(", ");
+
+        return {
+          id: u.id,
+          _id: u._id,
+          name: `${u.firstName || ""} ${u.lastName || ""}`.trim(),
+          age: calculateAge(u.dateOfBirth),
+          height: u.height,
+          caste: u.caste,
+          designation: u.designation,
+          religion: u.religion,
+          profession: u.occupation,
+          salary: u.annualIncome,
+          education: u.highestEducation,
+          location,
+          languages: Array.isArray(u.motherTongue)
+            ? u.motherTongue.join(", ")
+            : u.motherTongue || "",
+          gender: u.gender,
+          profileImage: u.profileImage,
+          lastSeen: u.updatedAt || u.createdAt,
+          likeStatus: like.status, // liked / matched
+        };
+      });
+
+    return res.status(200).json({
+      success: true,
+      count: formatted.length,
+      data: formatted,
     });
 
-    res.status(200).json({ success: true, data: formattedLikes });
   } catch (error) {
-    console.error('Error getting sent likes:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error("Error getting sent likes:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error getting sent likes",
+      error: error.message,
+    });
   }
 };
+
 
 
 
@@ -214,41 +369,92 @@ export const getAllUsersILiked = async (req, res) => {
   try {
     const userId = req.userId;
 
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID missing",
+      });
+    }
+
+    // -----------------------------------
+    // Fetch likes where YOU are the sender
+    // -----------------------------------
     const likes = await LikeModel.find({ senderId: userId })
-      .populate({
-        path: 'receiverId',
-        select: `fullName lastName userName dateOfBirth height religion occupation 
-        annualIncome highestEducation city state motherTongue 
-        gender updatedAt createdAt`
+      .populate(
+        "receiverId",
+        `
+          id _id firstName lastName dateOfBirth height religion caste occupation
+          annualIncome highestEducation currentCity city state currentState motherTongue
+          gender profileImage updatedAt createdAt designation
+        `
+      )
+      .sort({ createdAt: -1 });
+
+    // Helper – Age Calculation
+    const calculateAge = (dob) => {
+      if (!dob) return null;
+      const birthDate = new Date(dob);
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const m = today.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+      return age;
+    };
+
+    // -----------------------------------
+    // Format final response
+    // -----------------------------------
+    const profiles = likes
+      .filter((like) => like.receiverId) // avoid null users
+      .map((like) => {
+        const user = like.receiverId;
+
+        const location = [
+          user.city || user.currentCity || "",
+          user.state || user.currentState || "",
+        ]
+          .filter(Boolean)
+          .join(", ");
+
+        return {
+          id: user.id,
+          _id: user._id,
+          name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+          age: calculateAge(user.dateOfBirth),
+          height: user.height,
+          caste: user.caste,
+          religion: user.religion,
+          profession: user.occupation,
+          salary: user.annualIncome,
+          education: user.highestEducation,
+          location,
+          languages: Array.isArray(user.motherTongue)
+            ? user.motherTongue.join(", ")
+            : user.motherTongue || "",
+          gender: user.gender,
+          profileImage: user.profileImage,
+          lastSeen: user.updatedAt || user.createdAt,
+          likeStatus: like.status, // liked / matched
+        };
       });
 
-    const profiles = likes.map(like => {
-      const user = like.receiverId;
-
-      return {
-        name: `${user.fullName} ${user.lastName}`,
-        age: calculateAge(user.dateOfBirth),
-        height: user.height,
-        religion: user.religion,
-        profession: user.occupation,
-        salary: user.annualIncome,
-        education: user.highestEducation,
-        location: `${user.city}, ${user.state}`,
-        languages: user.motherTongue,
-        gender: user.gender,
-        lastSeen: user.updatedAt || user.createdAt,
-        likeStatus: like.status,
-      };
-    });
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
+      count: profiles.length,
       likedUsers: profiles,
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Internal server error" });
+    console.error("[getAllUsersILiked Error]", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
   }
 };
+
 
 
 
@@ -324,7 +530,40 @@ export const getMatchedUsers = async (req, res) => {
   }
 };
 
+export const getAllUsers = async (req, res) => {
+  try {
+    const userId = req.userId;
 
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized: userId missing",
+      });
+    }
+
+    // Fetch all users except the logged-in user
+    const users = await RegisterModel.find(
+      { _id: { $ne: userId } }  // exclude yourself
+    )
+      .select("-password -mobileOTP") // hide sensitive fields
+      .sort({ createdAt: -1 });       // newest first
+
+    return res.status(200).json({
+      success: true,
+      message: "All users fetched successfully",
+      count: users.length,
+      users,
+    });
+
+  } catch (error) {
+    console.error("[getAllUsers ERROR]", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
 
 // They Shortlisted Me
 export const getTheyShortlisted = async (req, res) => {

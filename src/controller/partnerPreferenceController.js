@@ -97,84 +97,130 @@ export const getPartnerPreference = async (req, res) => {
 // };
 
 
+
 export const searchUsers = async (req, res) => {
   try {
     const userId = req.userId;
-    console.log(userId, "user");
 
     const {
-      gender,
-      religion,
-      caste,
       ageMin,
       ageMax,
-      height,
+      heightMin,
+      heightMax,
+      religion,
+      caste,
       colorComplex,
+      maritalStatus,
+      country,
       state,
+      city,
+      highestEducation,
+      employedIn,
+      designation,
+      gender
     } = req.body;
 
-    const query = { adminApprovel: "approved" }; // ✅ Only approved users
+    const query = { adminApprovel: "approved" };
 
-    // Prefer opposite gender of current user
-    if (userId) {
-      const currentUser = await RegisterModel.findById(userId);
-      if (currentUser && currentUser.gender) {
-        query.gender = currentUser.gender === 'Male' ? 'Female' : 'Male';
-      }
-    } else if (gender) {
+    // ---------------------- FIXED GENDER LOGIC ----------------------
+    if (gender === "Male" || gender === "Female") {
       query.gender = gender;
     }
+    // If empty or undefined → search ALL genders
 
+    // ---------------------- DYNAMIC FILTERS ------------------------
     if (religion) query.religion = religion;
     if (caste) query.caste = caste;
-    if (height) query.height = height;
+    if (maritalStatus) query.maritalStatus = maritalStatus;
     if (colorComplex) query.colorComplex = colorComplex;
+    if (country) query.country = country;
     if (state) query.state = state;
+    if (city) query.city = city;
+    if (highestEducation) query.highestEducation = highestEducation;
+    if (employedIn) query.occupation = employedIn;
+    if (designation) query.designation = designation;
 
+    // ---------------------- CORRECT AGE FILTER ----------------------
     if (ageMin || ageMax) {
       const today = moment();
-      const maxDOB = ageMax ? today.clone().subtract(ageMax, 'years').toDate() : null;
-      const minDOB = ageMin ? today.clone().subtract(ageMin, 'years').toDate() : null;
+
+      const minYear = Number(ageMin); // youngest
+      const maxYear = Number(ageMax); // oldest
+
+      const youngestDOB =
+        !isNaN(minYear) && minYear > 0
+          ? today.clone().subtract(minYear, "years").toDate()
+          : null;
+
+      const oldestDOB =
+        !isNaN(maxYear) && maxYear > 0
+          ? today.clone().subtract(maxYear, "years").toDate()
+          : null;
 
       query.dateOfBirth = {};
-      if (maxDOB) query.dateOfBirth.$lte = maxDOB;
-      if (minDOB) query.dateOfBirth.$gte = minDOB;
+
+      // oldest first
+      if (oldestDOB instanceof Date && !isNaN(oldestDOB)) {
+        query.dateOfBirth.$gte = oldestDOB;
+      }
+
+      // youngest second
+      if (youngestDOB instanceof Date && !isNaN(youngestDOB)) {
+        query.dateOfBirth.$lte = youngestDOB;
+      }
+
+      if (Object.keys(query.dateOfBirth).length === 0) {
+        delete query.dateOfBirth;
+      }
     }
 
+    // ---------------------- SAFE HEIGHT FILTER ----------------------
+    if (heightMin || heightMax) {
+      const minH = Number(heightMin);
+      const maxH = Number(heightMax);
+
+      query.height = {};
+
+      if (!isNaN(minH) && minH > 0) query.height.$gte = minH;
+      if (!isNaN(maxH) && maxH > 0) query.height.$lte = maxH;
+
+      if (Object.keys(query.height).length === 0) delete query.height;
+    }
+
+    // ---------------------- FETCH USERS ----------------------------
     const users = await RegisterModel.find(query).select(`
       _id id firstName lastName dateOfBirth height religion caste occupation
       annualIncome highestEducation currentCity city state currentState motherTongue
-      gender profileImage updatedAt createdAt designation
+      gender profileImage updatedAt createdAt designation maritalStatus country
     `);
 
-    // Helper to calculate age
+    // Helper: calculate age
     const calculateAge = (dob) => {
       const today = new Date();
       const birthDate = new Date(dob);
       let age = today.getFullYear() - birthDate.getFullYear();
       const m = today.getMonth() - birthDate.getMonth();
-      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-        age--;
-      }
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
       return age;
     };
 
-    // Format output
-    const formattedUsers = users.map(user => ({
+    // Format response
+    const formattedUsers = users.map((user) => ({
       id: user.id,
       _id: user._id,
       name: `${user.firstName} ${user.lastName}`,
       age: calculateAge(user.dateOfBirth),
       height: user.height,
       caste: user.caste,
-      designation: user.designation,
       religion: user.religion,
+      maritalStatus: user.maritalStatus,
+      designation: user.designation,
       profession: user.occupation,
       salary: user.annualIncome,
       education: user.highestEducation,
-      location: `${user.city || user.currentCity || ''}, ${user.state || user.currentState || ''}`,
+      location: `${user.city || user.currentCity || ""}, ${user.state || user.currentState || ""}`,
       languages: Array.isArray(user.motherTongue)
-        ? user.motherTongue.join(', ')
+        ? user.motherTongue.join(", ")
         : user.motherTongue,
       gender: user.gender,
       profileImage: user.profileImage,
@@ -182,62 +228,172 @@ export const searchUsers = async (req, res) => {
     }));
 
     res.status(200).json({ success: true, data: formattedUsers });
+
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Server Error' });
+    console.error("Search Error:", err);
+    res.status(500).json({ success: false, message: "Server Error" });
   }
 };
 
 
+export const getMatchedUsersByPreference = async (req, res) => {
+  try {
+    const userId = req.userId;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized user" });
+    }
+
+    const pref = await PartnerPreferenceModel.findOne({ userId });
+    if (!pref) {
+      return res.status(200).json({
+        success: false,
+        message: "No preferences saved",
+        users: [],
+      });
+    }
+
+    // Fetch all other users first
+    const allUsers = await RegisterModel.find({ _id: { $ne: userId } })
+      .select("-password -mobileOTP");
+
+    const matched = [];
+
+    allUsers.forEach((user) => {
+      let score = 0; // ⭐ match score (more = better)
+
+      // Gender Match
+      if (!pref.gender || user.gender === pref.gender) score++;
+
+      // Religion Match
+      if (!pref.religion || user.religion === pref.religion) score++;
+
+      // Caste Match
+      if (!pref.caste || user.caste === pref.caste) score++;
+
+      // Community Match
+      if (!pref.community || user.community === pref.community) score++;
+
+      // Gotra Match
+      if (!pref.gotra || user.gotra === pref.gotra) score++;
+
+      // City Match
+      if (!pref.city || user.currentCity === pref.city) score++;
+
+      // State Match
+      if (!pref.state || user.currentState === pref.state) score++;
+
+      // Education Match
+      if (!pref.highestEducation || user.highestEducation === pref.highestEducation) score++;
+
+      // Designation Match
+      if (!pref.designation || user.designation === pref.designation) score++;
+
+      // Annual Income Match
+      if (!pref.income || user.annualIncome === pref.income) score++;
+
+      // Marital Status Match
+      if (!pref.maritalStatus || user.maritalStatus === pref.maritalStatus) score++;
+
+      // Height match (soft contain check)
+      if (!pref.minheight || user.height >= pref.minheight) score++;
+      if (!pref.maxheight || user.height <= pref.maxheight) score++;
+
+      // Weight match
+      if (!pref.minWeight || user.weight >= pref.minWeight) score++;
+      if (!pref.maxWeight || user.weight <= pref.maxWeight) score++;
+
+      // AGE match
+      if (pref.minAge || pref.maxAge) {
+        const age = getAge(user.dateOfBirth);
+
+        if (!pref.minAge || age >= pref.minAge) score++;
+        if (!pref.maxAge || age <= pref.maxAge) score++;
+      }
+
+      // ⭐ Push user with score
+      matched.push({
+        ...user.toObject(),
+        matchScore: score, // ⭐ this tells how much matched
+      });
+    });
+
+    // Sort by highest matching score
+    matched.sort((a, b) => b.matchScore - a.matchScore);
+
+    return res.status(200).json({
+      success: true,
+      message: "Matches fetched successfully",
+      users: matched,
+    });
+
+  } catch (error) {
+    console.error("[MATCH ERROR]", error);
+    return res.status(500).json({ success: false, message: "Server error", error: error.message });
+  }
+};
+
+// Helper function
+function getAge(dob) {
+  if (!dob) return 0;
+  const diff = Date.now() - new Date(dob).getTime();
+  return new Date(diff).getUTCFullYear() - 1970;
+}
+
 export const getSearchUserById = async (req, res) => {
-  const userId = req.params.id;
+  const userId = req.params.id; // this is Mongo _id
 
   try {
-    const user = await RegisterModel.findOne({ id: userId, adminApprovel: "approved" }).select(`
+    const user = await RegisterModel.findOne({
+      _id: userId,                 // <-- FIXED: search by MongoDB _id
+      adminApprovel: "approved"
+    }).select(`
       _id id firstName lastName dateOfBirth height religion caste occupation
       annualIncome highestEducation currentCity city state currentState motherTongue
-      gender profileImage updatedAt createdAt designation
+      gender profileImage updatedAt createdAt designation maritalStatus country
     `);
 
     if (!user) {
-      return res.status(404).json({ success: false, message: "User not found or not approved" });
+      return res.status(404).json({
+        success: false,
+        message: "User not found or not approved",
+      });
     }
 
-    const calculateAge = (dob) => {
-      const today = new Date();
-      const birthDate = new Date(dob);
-      let age = today.getFullYear() - birthDate.getFullYear();
-      const m = today.getMonth() - birthDate.getMonth();
-      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-        age--;
-      }
-      return age;
-    };
+    // Age Calculation
+    const today = new Date();
+    const birthDate = new Date(user.dateOfBirth);
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
 
-    const formattedUser = {
+    const formatted = {
       id: user.id,
       _id: user._id,
       name: `${user.firstName} ${user.lastName}`,
-      age: calculateAge(user.dateOfBirth),
+      age,
       height: user.height,
       caste: user.caste,
-      designation: user.designation,
       religion: user.religion,
+      maritalStatus: user.maritalStatus,
+      designation: user.designation,
       profession: user.occupation,
       salary: user.annualIncome,
       education: user.highestEducation,
-      location: `${user.city || user.currentCity || ''}, ${user.state || user.currentState || ''}`,
+      location: `${user.city || user.currentCity || ""}, ${user.state || user.currentState || ""}`,
       languages: Array.isArray(user.motherTongue)
-        ? user.motherTongue.join(', ')
+        ? user.motherTongue.join(", ")
         : user.motherTongue,
       gender: user.gender,
       profileImage: user.profileImage,
       lastSeen: user.updatedAt || user.createdAt,
     };
 
-    res.status(200).json({ success: true, data: formattedUser });
+    res.status(200).json({ success: true, data: formatted });
+
   } catch (err) {
-    console.error(err);
+    console.error("SearchById Error:", err);
     res.status(500).json({ success: false, message: "Server Error" });
   }
 };
+
+

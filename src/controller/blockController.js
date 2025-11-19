@@ -3,39 +3,62 @@ import { BlockModel } from "../modal/blockModel.js";
 
 export const blockUser = async (req, res) => {
   try {
-    const blockedBy = req.userId;
-    const { userIdToBlock } = req.body;
+    const blockedBy = req.userId;              // The person performing the block
+    const { userIdToBlock } = req.body;        // The target user
 
+    // Validation
     if (!blockedBy || !userIdToBlock) {
-      return res.status(400).json({ success: false, message: 'Missing user id to block' });
+      return res.status(400).json({
+        success: false,
+        message: "Missing required user ID"
+      });
     }
 
+    // Prevent self-block
     if (blockedBy.toString() === userIdToBlock.toString()) {
-      return res.status(400).json({ success: false, message: 'Cannot block yourself' });
+      return res.status(400).json({
+        success: false,
+        message: "You cannot block yourself"
+      });
     }
 
-    const block = await BlockModel.findOneAndUpdate(
-      { blockedBy, blockedUser: userIdToBlock },
-      { $setOnInsert: { blockedBy, blockedUser: userIdToBlock } },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
+    // Check if already blocked
+    const alreadyBlocked = await BlockModel.findOne({
+      blockedBy,
+      blockedUser: userIdToBlock
+    });
+
+    if (alreadyBlocked) {
+      return res.status(200).json({
+        success: true,
+        message: "User already blocked",
+        data: alreadyBlocked
+      });
+    }
+
+    // Create block entry
+    const blockEntry = await BlockModel.create({
+      blockedBy,
+      blockedUser: userIdToBlock
+    });
 
     return res.status(200).json({
       success: true,
-      message: 'User blocked',
-      data: {
-        blockedBy: block.blockedBy,
-        blockedUser: block.blockedUser
-      }
+      message: "User blocked successfully",
+      data: blockEntry
     });
-  } catch (err) {
-    if (err.code === 11000) {
-      return res.status(200).json({ success: true, message: 'User already blocked' });
-    }
-    console.error('blockUser error:', err);
-    return res.status(500).json({ success: false, message: 'Server error' });
+
+  } catch (error) {
+    console.error("blockUser error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message
+    });
   }
 };
+
 
 
 export const unblockUser = async (req, res) => {
@@ -43,52 +66,91 @@ export const unblockUser = async (req, res) => {
     const blockedBy = req.userId;
     const { userIdToUnblock } = req.body;
 
-    await BlockModel.findOneAndDelete({ blockedBy, blockedUser: userIdToUnblock });
-    return res.status(200).json({ success: true, message: 'User unblocked' });
+    // Validation
+    if (!blockedBy || !userIdToUnblock) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required user ID"
+      });
+    }
+
+    // Prevent self-unblock error
+    if (blockedBy.toString() === userIdToUnblock.toString()) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot unblock yourself"
+      });
+    }
+
+    // Check if entry exists
+    const exists = await BlockModel.findOne({
+      blockedBy,
+      blockedUser: userIdToUnblock
+    });
+
+    if (!exists) {
+      return res.status(200).json({
+        success: true,
+        message: "User is not blocked"
+      });
+    }
+
+    // Delete block entry
+    await BlockModel.findOneAndDelete({
+      blockedBy,
+      blockedUser: userIdToUnblock
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "User unblocked successfully"
+    });
+
   } catch (err) {
-    console.error('unblockUser error:', err);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    console.error("unblockUser error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: err.message
+    });
   }
 };
+
 
 
 export const getMyBlockedList = async (req, res) => {
   try {
-    const blockedBy = req.userId;
+    const userId = req.userId;
 
-    const blocks = await BlockModel.find({ blockedBy }).populate('blockedUser');
+    // Find all block entries where you are the blocker
+    const blocked = await BlockModel.find({ blockedBy: userId })
+      .populate("blockedUser", "firstName lastName profileImage gender age currentCity currentState");
 
-    const formattedUsers = blocks.map((block) => {
-      const user = block.blockedUser;
+    // Format clean output
+    const formatted = blocked.map(entry => ({
+      _id: entry.blockedUser?._id,
+      name: `${entry.blockedUser?.firstName || ''} ${entry.blockedUser?.lastName || ''}`,
+      profileImage: entry.blockedUser?.profileImage || null,
+      gender: entry.blockedUser?.gender,
+      location: `${entry.blockedUser?.currentCity || ''}, ${entry.blockedUser?.currentState || ''}`,
+    }));
 
-      return {
-        id: user.id,
-        _id: user._id,
-        name: `${user.firstName} ${user.lastName}`,
-        age: calculateAge(user.dateOfBirth),
-        height: user.height,
-        caste: user.caste,
-        designation: user.designation,
-        religion: user.religion,
-        profession: user.occupation,
-        salary: user.annualIncome,
-        education: user.highestEducation,
-        location: `${user.city || ''}, ${user.state || ''}`,
-        languages: Array.isArray(user.motherTongue)
-          ? user.motherTongue.join(', ')
-          : user.motherTongue,
-        gender: user.gender,
-        profileImage: user.profileImage,
-        lastSeen: user.updatedAt || user.createdAt,
-      };
+    return res.status(200).json({
+      success: true,
+      count: formatted.length,
+      data: formatted
     });
 
-    return res.status(200).json({ success: true, data: formattedUsers });
   } catch (err) {
-    console.error('getMyBlockedList error:', err);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    console.error("getMyBlockedList error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: err.message
+    });
   }
 };
+
 
 
 

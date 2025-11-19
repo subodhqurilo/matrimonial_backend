@@ -110,87 +110,116 @@ import RegisterModel from '../modal/register.js';
 export const getDailyRecomadation = async (req, res) => {
   try {
     const userId = req.userId;
-    console.log("User ID:", userId);
 
-    // Step 1: Blocked users
-    const blockedUsers = await BlockModel.find({ blockedBy: userId }).select('blockedUser');
-    const blockedUserIds = blockedUsers.map(block => block.blockedUser.toString());
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized user" });
+    }
 
-    // Step 2: Users liked or matched by this user
-    const likedUsers = await LikeModel.find({
-      $or: [
-        { senderId: userId },
-        { receiverId: userId }
-      ]
-    }).select('senderId receiverId');
+    // Get logged-in user (for gender preference)
+    const me = await RegisterModel.findById(userId).select("gender");
 
-    const likedUserIds = new Set();
-    likedUsers.forEach(like => {
-      if (like.senderId.toString() !== userId) likedUserIds.add(like.senderId.toString());
-      if (like.receiverId.toString() !== userId) likedUserIds.add(like.receiverId.toString());
+    const oppositeGender =
+      me.gender === "Male" ? "Female" : me.gender === "Female" ? "Male" : null;
+
+    // ----------- 1️⃣ BLOCKED USERS -----------
+    const blocked = await BlockModel.find({ blockedBy: userId }).distinct("blockedUser");
+
+    // ----------- 2️⃣ LIKED / MATCHED USERS -----------
+    const likes = await LikeModel.find({
+      $or: [{ senderId: userId }, { receiverId: userId }],
+    }).select("senderId receiverId");
+
+    const likedSet = new Set();
+    likes.forEach((l) => {
+      if (l.senderId.toString() !== userId) likedSet.add(l.senderId.toString());
+      if (l.receiverId.toString() !== userId) likedSet.add(l.receiverId.toString());
     });
 
-    // Step 3: Users this user sent account requests to
-    const sentRequests = await AccountRequestModel.find({ requesterId: userId }).select('receiverId');
-    const requestedUserIds = sentRequests.map(req => req.receiverId.toString());
+    // ----------- 3️⃣ USERS REQUESTED BY ME -----------
+    const requested = await AccountRequestModel.find({
+      requesterId: userId,
+    }).distinct("receiverId");
 
-    const excludedUserIds = new Set([
-      ...blockedUserIds,
-      ...Array.from(likedUserIds),
-      ...requestedUserIds,
-      userId.toString() // Exclude self
+    // ----------- 4️⃣ BUILD EXCLUSION LIST -----------
+    const exclude = new Set([
+      ...blocked.map(String),
+      ...Array.from(likedSet),
+      ...requested.map(String),
+      userId.toString(),
     ]);
 
-    // Step 5: Fetch users excluding blocked, liked, requested, and self
-    const allUsers = await RegisterModel.find({
-      _id: { $nin: Array.from(excludedUserIds) }
-    }).select(`
-      id _id firstName lastName dateOfBirth height religion caste occupation
-      annualIncome highestEducation currentCity city state currentState motherTongue
-      gender profileImage updatedAt createdAt designation
-    `);
+    // ----------- 5️⃣ FETCH USERS (ONE QUERY ONLY!) -----------
+    const candidates = await RegisterModel.find({
+      _id: { $nin: Array.from(exclude) },
+      ...(oppositeGender && { gender: oppositeGender }),
+    })
+      .select(`
+        id _id firstName lastName dateOfBirth height religion caste occupation
+        annualIncome highestEducation currentCity city state currentState motherTongue
+        gender profileImage updatedAt createdAt designation
+      `)
+      .sort({ createdAt: -1 });
 
-    // Step 6: Age utility
+    // ----------- 6️⃣ AGE CALCULATION -----------
     const calculateAge = (dob) => {
+      if (!dob) return null;
       const today = new Date();
-      const birthDate = new Date(dob);
-      let age = today.getFullYear() - birthDate.getFullYear();
-      const m = today.getMonth() - birthDate.getMonth();
-      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+      const birth = new Date(dob);
+      let age = today.getFullYear() - birth.getFullYear();
+      if (
+        today.getMonth() < birth.getMonth() ||
+        (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())
+      ) {
         age--;
       }
       return age;
     };
 
-    // Step 7: Format profiles
-    const profiles = allUsers.map(user => ({
-      id: user.id,
-      _id: user._id,
-      name: `${user.firstName} ${user.lastName}`,
-      age: calculateAge(user.dateOfBirth),
-      height: user.height,
-      caste: user.caste,
-      designation: user.designation,
-      religion: user.religion,
-      profession: user.occupation,
-      salary: user.annualIncome,
-      education: user.highestEducation,
-      location: `${user.city || ''}, ${user.state || ''}`,
-      languages: Array.isArray(user.motherTongue)
-        ? user.motherTongue.join(', ')
-        : user.motherTongue,
-      gender: user.gender,
-      profileImage: user.profileImage,
-      lastSeen: user.updatedAt || user.createdAt,
-    }));
+    // ----------- 7️⃣ FORMAT PROFILES FOR UI -----------
+    const profiles = candidates.map((user) => {
+      const location =
+        `${user.city || user.currentCity || ""}, ${user.state || user.currentState || ""}`
+          .replace(/^,|,$/g, "") // cleanup commas
+          .trim();
 
-    res.status(200).json({ success: true, profiles });
+      const languages = Array.isArray(user.motherTongue)
+        ? user.motherTongue.join(", ")
+        : user.motherTongue || null;
+
+      return {
+        id: user.id,
+        _id: user._id,
+        name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+        age: calculateAge(user.dateOfBirth),
+        height: user.height || null,
+        caste: user.caste || null,
+        designation: user.designation || user.occupation || null,
+        religion: user.religion || null,
+        salary: user.annualIncome || null,
+        education: user.highestEducation || null,
+        location,
+        languages,
+        gender: user.gender,
+        profileImage: user.profileImage,
+        lastSeen: user.updatedAt || user.createdAt,
+      };
+    });
+
+    // ----------- 8️⃣ RANDOMIZE RESULTS (DAILY FEELING ❤️) -----------
+    const shuffled = profiles.sort(() => 0.5 - Math.random());
+
+    return res.status(200).json({
+      success: true,
+      count: shuffled.length,
+      profiles: shuffled,
+    });
 
   } catch (error) {
-    console.error('Error fetching daily recommendations:', error);
-    res.status(500).json({ success: false, message: 'Internal server error' });
+    console.error("🔥 Daily Recommendation Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
 
 
 

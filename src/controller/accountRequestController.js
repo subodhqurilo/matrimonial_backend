@@ -1,3 +1,5 @@
+import moment from "moment";
+
 import { AccountRequestModel } from "../modal/accountRequestModel.js";
 
 export const calculateAge = dob => {
@@ -10,81 +12,172 @@ export const calculateAge = dob => {
   }
   return age;
 };
+export const formatUserProfile = (user) => {
+  if (!user) return null;
+
+  const calculateAge = (dob) => {
+    if (!dob) return null;
+    const birthDate = new Date(dob);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+    return age;
+  };
+
+  const location = [
+    user.city || user.currentCity || "",
+    user.state || user.currentState || ""
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return {
+    id: user.id,
+    _id: user._id,
+    name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+    age: calculateAge(user.dateOfBirth),
+    height: user.height,
+    caste: user.caste,
+    designation: user.designation || user.occupation,
+    religion: user.religion,
+    profession: user.occupation,
+    salary: user.annualIncome,
+    education: user.highestEducation,
+    location,
+    languages: Array.isArray(user.motherTongue)
+      ? user.motherTongue.join(", ")
+      : user.motherTongue || "",
+    gender: user.gender,
+    profileImage: user.profileImage,
+    lastSeen: user.updatedAt || user.createdAt,
+  };
+};
 
 
 
 export const requestAccount = async (req, res) => {
-  const requesterId = req.userId; 
+  const requesterId = req.userId;
   const { receiverId } = req.body;
 
   if (!requesterId || !receiverId) {
-    return res.status(400).json({ message: 'Both requester and receiver are required' });
+    return res.status(400).json({ success: false, message: "Both requesterId and receiverId are required" });
   }
 
   if (requesterId.toString() === receiverId.toString()) {
-    return res.status(400).json({ message: 'Cannot send request to yourself' });
+    return res.status(400).json({ success: false, message: "You cannot send a request to yourself" });
   }
 
   try {
-    const existingRequest = await AccountRequestModel.findOne({
-      requesterId,
-      receiverId,
+    // 🔍 Check if any request already exists (both directions)
+    const existing = await AccountRequestModel.findOne({
+      $or: [
+        { requesterId, receiverId },
+        { requesterId: receiverId, receiverId: requesterId }
+      ]
     });
 
-    if (existingRequest) {
-      return res.status(400).json({ message: 'Request already exists' });
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        message:
+          existing.status === "accepted"
+            ? "You are already connected"
+            : "A request already exists"
+      });
     }
 
-  
-    const request = new AccountRequestModel({
-      userId: requesterId, // optional if userId used for other tracking
+    // ➕ Create new request
+    const newRequest = new AccountRequestModel({
       requesterId,
       receiverId,
+      status: "pending"
     });
 
-    await request.save();
+    await newRequest.save();
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
-      message: 'Request sent successfully',
-      request,
+      message: "Request sent successfully",
+      request: newRequest
     });
+
   } catch (error) {
-    res.status(500).json({
+    console.error("❌ requestAccount error:", error);
+    return res.status(500).json({
       success: false,
-      message: 'Server error',
-      error: error.message,
+      message: "Server error",
+      error: error.message
     });
   }
 };
 
 
 export const updateAccountRequestStatus = async (req, res) => {
-  const userId = req.userId; // should be receiver
+  const userId = req.userId; // Logged-in user (receiver)
   const { requestId, status } = req.body;
 
   if (!['accepted', 'rejected'].includes(status)) {
-    return res.status(400).json({ message: 'Invalid status' });
+    return res.status(400).json({ success: false, message: "Invalid status" });
   }
 
   try {
+    // 🔍 Find the request where YOU are the receiver
     const request = await AccountRequestModel.findOne({
       _id: requestId,
-      receiverId: userId,
+      receiverId: userId
     });
 
     if (!request) {
-      return res.status(404).json({ message: 'Request not found or unauthorized' });
+      return res.status(404).json({
+        success: false,
+        message: "Request not found or you are not authorized"
+      });
     }
 
+    // ❗ If already accepted/rejected, prevent repeat actions
+    if (request.status === status) {
+      return res.status(200).json({
+        success: true,
+        message: `Request already ${status}`,
+        request
+      });
+    }
+
+    // ✔ Update request status
     request.status = status;
     await request.save();
 
-    res.status(200).json({ success: true, message: `Request ${status}`, request });
+    // 🔁 OPTIONAL: Update reverse request for consistency
+    // Example: If A accepts B, B also sees accepted
+    const reverseRequest = await AccountRequestModel.findOne({
+      requesterId: userId,
+      receiverId: request.requesterId
+    });
+
+    if (reverseRequest) {
+      reverseRequest.status = status;
+      await reverseRequest.save();
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Request ${status} successfully`,
+      request
+    });
+
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error("❌ updateAccountRequestStatus error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message
+    });
   }
 };
+
+
+
 
 
 
@@ -95,66 +188,96 @@ export const getReceivedRequests = async (req, res) => {
   const userId = req.userId;
 
   try {
-    // Find all requests received by the logged-in user
+    // ---------------------- GET REQUESTS ----------------------
     const requests = await AccountRequestModel.find({ receiverId: userId })
       .populate({
-        path: 'requesterId',
+        path: "requesterId",
         select: `
           id _id firstName lastName dateOfBirth height religion caste occupation
           annualIncome highestEducation currentCity city state currentState motherTongue
-          gender profileImage updatedAt createdAt designation
+          gender profileImage updatedAt createdAt designation maritalStatus country
         `,
       })
       .sort({ createdAt: -1 });
 
-    // Format response
-    const data = requests.flatMap(req => {
-      const user = req.requesterId;
-      if (!user) return []; // Skip if user deleted
+    // ---------------------- AGE HELPER ----------------------
+    const calculateAge = (dob) => {
+      if (!dob) return null;
+      const today = new Date();
+      const birthDate = new Date(dob);
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const m = today.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+      return age;
+    };
 
-      return {
-        id: user.id,
-        _id: user._id,
-        name: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
+    // ---------------------- FORMAT RESPONSE ----------------------
+    const data = requests
+      .filter((r) => r.requesterId) // skip null users
+      .map((reqItem) => {
+        const user = reqItem.requesterId;
 
-        age: calculateAge(user.dateOfBirth),
+        // 🔹 Format name
+        const name = `${user.firstName || ""} ${user.lastName || ""}`.trim();
 
-        height: user.height || null,
-        caste: user.caste || null,
-        designation: user.designation || user.occupation || null,
-        religion: user.religion || null,
+        // 🔹 Location (fix: avoid ", ,")
+        const city = user.city || user.currentCity || "";
+        const state = user.state || user.currentState || "";
+        const location = [city, state].filter(Boolean).join(", ");
 
-        salary: user.annualIncome || null,
-        education: user.highestEducation || null,
+        // 🔹 Language formatting
+        const languages = Array.isArray(user.motherTongue)
+          ? user.motherTongue.join(", ")
+          : user.motherTongue || null;
 
-        // Best location handling
-        location:
-          (user.city || user.currentCity || '') +
-          (user.state || user.currentState ? `, ${user.state || user.currentState}` : ''),
+        return {
+          requestId: reqItem._id,
+          requestStatus: reqItem.status,
 
-        // Language conversion
-        languages: Array.isArray(user.motherTongue)
-          ? user.motherTongue.join(', ')
-          : user.motherTongue || null,
+          // User details
+          id: user.id,
+          _id: user._id,
+          name,
+          age: calculateAge(user.dateOfBirth),
 
-        gender: user.gender || null,
-        profileImage: user.profileImage || null,
+          height: user.height || null,
+          caste: user.caste || null,
+          designation: user.designation || user.occupation || null,
+          religion: user.religion || null,
 
-        lastSeen: user.updatedAt || user.createdAt,
-        requestStatus: req.status,
-        requestId: req._id,
-      };
+          salary: user.annualIncome || null,
+          education: user.highestEducation || null,
+          maritalStatus: user.maritalStatus || null,
+
+          location,
+          languages,
+          gender: user.gender,
+          profileImage: user.profileImage || null,
+
+          lastSeen: user.updatedAt || user.createdAt,
+          createdAt: reqItem.createdAt,
+        };
+      });
+
+    // ---------------------- RESPONSE ----------------------
+    return res.status(200).json({
+      success: true,
+      count: data.length,
+      data,
     });
 
-    return res.status(200).json({ success: true, data });
   } catch (error) {
-    console.error('❌ Error in getReceivedRequests:', error);
+    console.error("❌ Error in getReceivedRequests:", error);
+
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message: "Internal server error",
+      error: error.message,
     });
   }
 };
+
+
 
 
 
@@ -166,90 +289,190 @@ export const getReceivedRequestsByStatus = async (req, res) => {
   const userId = req.userId;
   const { status } = req.query;
 
-  const validStatuses = ['pending', 'accepted', 'rejected'];
+  const validStatuses = ["pending", "accepted", "rejected"];
   if (status && !validStatuses.includes(status)) {
-    return res.status(400).json({ message: 'Invalid status filter' });
+    return res.status(400).json({ message: "Invalid status filter" });
   }
 
   try {
     const filter = { receiverId: userId };
-    if (status) {
-      filter.status = status;
-    }
+    if (status) filter.status = status;
 
     const requests = await AccountRequestModel.find(filter)
       .populate({
-        path: 'requesterId',
+        path: "requesterId",
         select: `
           firstName lastName phoneNumber profileImage 
           partnerPreference.setAssProfileImage height caste designation 
-          annualIncome currentCity motherTongue highestEducation dateOfBirth id
-        `
+          annualIncome currentCity currentState motherTongue highestEducation dateOfBirth id
+        `,
       })
       .sort({ createdAt: -1 });
 
-    // Format response
-    const formatted = requests.map((request) => {
-      const user = request.requesterId;
-      return {
-        requestId: request._id,
-        status: request.status,
-        createdAt: request.createdAt,
-        user: {
-          _id: user._id,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          id: user.id,
-          height: user.height,
-          caste: user.caste,
-          designation: user.designation,
-          annualIncome: user.annualIncome,
-          currentCity: user.currentCity,
-          motherTongue: user.motherTongue,
-          highestEducation: user.highestEducation,
-          profileImage: user.profileImage || user?.partnerPreference?.setAssProfileImage || null,
-          dateOfBirth: user.dateOfBirth,
-        }
-      };
+    const formatted = requests
+      .filter((req) => req.requesterId) // Skip deleted users
+      .map((req) => {
+        const user = req.requesterId;
+
+        // Age
+        const age = user.dateOfBirth ? calculateAge(user.dateOfBirth) : null;
+
+        // Location formatting
+        const location = [user.currentCity, user.currentState]
+          .filter(Boolean)
+          .join(", ");
+
+        // Language formatting
+        const languages = Array.isArray(user.motherTongue)
+          ? user.motherTongue.join(", ")
+          : user.motherTongue || null;
+
+        return {
+          requestId: req._id,
+          status: req.status,
+          createdAt: req.createdAt,
+
+          user: {
+            _id: user._id,
+            id: user.id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+
+            age,
+            height: user.height || null,
+            caste: user.caste || null,
+            designation: user.designation || null,
+            annualIncome: user.annualIncome || null,
+            highestEducation: user.highestEducation || null,
+
+            location,
+            languages,
+
+            profileImage:
+              user.profileImage ||
+              user?.partnerPreference?.setAssProfileImage ||
+              null,
+
+            dateOfBirth: user.dateOfBirth,
+          },
+        };
+      });
+
+    return res.status(200).json({
+      success: true,
+      count: formatted.length,
+      requests: formatted,
     });
 
-    res.status(200).json({ success: true, requests: formatted });
   } catch (error) {
-    console.error('Error in getReceivedRequestsByStatus:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error("❌ Error in getReceivedRequestsByStatus:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
   }
 };
+
+
+
 
 
 
 
 export const getSentRequests = async (req, res) => {
   const userId = req.userId;
-  console.log("User ID:", userId);
+
   try {
+    // ---------------------- FETCH SENT REQUESTS ----------------------
     const requests = await AccountRequestModel.find({ requesterId: userId })
       .populate({
-        path: 'receiverId',
+        path: "receiverId",
         select: `
           id _id firstName lastName dateOfBirth height religion caste occupation
           annualIncome highestEducation currentCity city state currentState motherTongue
-          gender profileImage updatedAt createdAt designation
-        `
+          gender profileImage updatedAt createdAt designation maritalStatus country
+        `,
       })
       .sort({ createdAt: -1 });
 
-    const formatted = requests.map((req) => ({
-      requestId: req._id,
-      status: req.status,
-      createdAt: req.createdAt,
-      user: req.receiverId
-    }));
+    // ---------------------- AGE HELPER ----------------------
+    const calculateAge = (dob) => {
+      if (!dob) return null;
+      const today = new Date();
+      const birthDate = new Date(dob);
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const m = today.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+      return age;
+    };
 
-    res.status(200).json({ success: true, requests: formatted });
+    // ---------------------- FORMAT RESPONSE ----------------------
+    const formatted = requests
+      .filter((req) => req.receiverId) // Skip deleted/missing users
+      .map((reqItem) => {
+        const user = reqItem.receiverId;
+
+        // Format name
+        const name = `${user.firstName || ""} ${user.lastName || ""}`.trim();
+
+        // Location formatting
+        const city = user.city || user.currentCity || "";
+        const state = user.state || user.currentState || "";
+        const location = [city, state].filter(Boolean).join(", ");
+
+        // Language formatting
+        const languages = Array.isArray(user.motherTongue)
+          ? user.motherTongue.join(", ")
+          : user.motherTongue || null;
+
+        return {
+          requestId: reqItem._id,
+          requestStatus: reqItem.status,
+          createdAt: reqItem.createdAt,
+
+          // ---------------------- USER DETAILS ----------------------
+          id: user.id,
+          _id: user._id,
+          name,
+          age: calculateAge(user.dateOfBirth),
+
+          height: user.height || null,
+          caste: user.caste || null,
+          religion: user.religion || null,
+          designation: user.designation || user.occupation || null,
+          salary: user.annualIncome || null,
+          education: user.highestEducation || null,
+          maritalStatus: user.maritalStatus || null,
+
+          location,
+          languages,
+          gender: user.gender || null,
+          profileImage: user.profileImage || null,
+          lastSeen: user.updatedAt || user.createdAt,
+        };
+      });
+
+    // ---------------------- SEND RESPONSE ----------------------
+    return res.status(200).json({
+      success: true,
+      count: formatted.length,
+      data: formatted,
+    });
+
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error("❌ getSentRequests Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: err.message,
+    });
   }
 };
+
+
+
+
 
 
 
@@ -258,83 +481,235 @@ export const getRejectedRequests = async (req, res) => {
   const userId = req.userId;
 
   try {
+    // ---------------------- FETCH REJECTED REQUESTS ----------------------
     const requests = await AccountRequestModel.find({
       receiverId: userId,
-      status: 'rejected',
+      status: "rejected",
     })
       .populate({
-        path: 'requesterId',
+        path: "requesterId",
         select: `
           id _id firstName lastName dateOfBirth height religion caste occupation
           annualIncome highestEducation currentCity city state currentState motherTongue
-          gender profileImage updatedAt createdAt designation
-        `
+          gender profileImage updatedAt createdAt designation maritalStatus country
+        `,
       })
       .sort({ createdAt: -1 });
 
-    const formatted = requests.map((request) => ({
-      requestId: request._id,
-      status: request.status,
-      createdAt: request.createdAt,
-      user: request.requesterId
-    }));
+    // ---------------------- AGE HELPER ----------------------
+    const calculateAge = (dob) => {
+      if (!dob) return null;
+      const today = new Date();
+      const birthDate = new Date(dob);
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const m = today.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+      return age;
+    };
 
-    res.status(200).json({ success: true, requests: formatted });
+    // ---------------------- FORMAT RESPONSE ----------------------
+    const formatted = requests
+      .filter((reqItem) => reqItem.requesterId) // Skip deleted profiles
+      .map((reqItem) => {
+        const user = reqItem.requesterId;
+
+        // 🔹 Format location
+        const city = user.city || user.currentCity || "";
+        const state = user.state || user.currentState || "";
+        const location = [city, state].filter(Boolean).join(", ");
+
+        // 🔹 Format languages
+        const languages = Array.isArray(user.motherTongue)
+          ? user.motherTongue.join(", ")
+          : user.motherTongue || null;
+
+        return {
+          requestId: reqItem._id,
+          requestStatus: reqItem.status,
+          createdAt: reqItem.createdAt,
+
+          // ---------------------- USER DETAILS ----------------------
+          id: user.id,
+          _id: user._id,
+          name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+          age: calculateAge(user.dateOfBirth),
+
+          height: user.height || null,
+          caste: user.caste || null,
+          religion: user.religion || null,
+          designation: user.designation || user.occupation || null,
+          salary: user.annualIncome || null,
+          education: user.highestEducation || null,
+          maritalStatus: user.maritalStatus || null,
+
+          location,
+          languages,
+          gender: user.gender || null,
+          profileImage: user.profileImage || null,
+          lastSeen: user.updatedAt || user.createdAt,
+        };
+      });
+
+    // ---------------------- SEND RESPONSE ----------------------
+    return res.status(200).json({
+      success: true,
+      count: formatted.length,
+      data: formatted,
+    });
+
   } catch (error) {
-    console.error('Error fetching rejected requests:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error("❌ Error fetching rejected requests:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
   }
 };
+
+
 
 export const deleteAccountRequest = async (req, res) => {
   try {
+    const userId = req.userId;
     const { requestId } = req.body;
-    if (!requestId) return res.status(400).json({ success: false, message: "RequestId required" });
 
-    // Delete logic here, e.g., MongoDB
+    if (!requestId) {
+      return res.status(400).json({
+        success: false,
+        message: "RequestId is required"
+      });
+    }
+
+    // Check if request exists & belongs to the user (sender or receiver)
+    const request = await AccountRequestModel.findOne({
+      _id: requestId,
+      $or: [{ requesterId: userId }, { receiverId: userId }]
+    });
+
+    if (!request) {
+      return res.status(404).json({
+        success: false,
+        message: "Request not found or unauthorized"
+      });
+    }
+
+    // Delete request
     await AccountRequestModel.findByIdAndDelete(requestId);
 
-    return res.json({ success: true, message: "Request deleted successfully" });
+    return res.status(200).json({
+      success: true,
+      message: "Request deleted successfully",
+      deletedRequestId: requestId
+    });
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({ success: false, message: "Server error" });
+    console.error("❌ deleteAccountRequest Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message
+    });
   }
 };
+
+
+
 
 
 
 
 export const getRequestsAcceptedByMe = async (req, res) => {
   const userId = req.userId;
-  console.log("User ID:", userId);
 
   try {
+    // ---------------------- FETCH ACCEPTED REQUESTS ----------------------
     const requests = await AccountRequestModel.find({
       receiverId: userId,
-      status: 'accepted',
-    }).populate({
-      path: 'requesterId',
-      select: `
-        id _id firstName lastName dateOfBirth height religion caste occupation
-        annualIncome highestEducation currentCity city state currentState motherTongue
-        gender profileImage updatedAt createdAt designation
-      `,
-    }).sort({ createdAt: -1 });
+      status: "accepted",
+    })
+      .populate({
+        path: "requesterId",
+        select: `
+          id _id firstName lastName dateOfBirth height religion caste occupation
+          annualIncome highestEducation currentCity city state currentState motherTongue
+          gender profileImage updatedAt createdAt designation maritalStatus country
+        `,
+      })
+      .sort({ createdAt: -1 });
 
-    const formatted = requests.map((request) => ({
-      requestId: request._id,
-      status: request.status,
-      createdAt: request.createdAt,
-      user: request.requesterId,
-      acceptedBy: 'me'
-    }));
+    // ---------------------- AGE HELPER ----------------------
+    const calculateAge = (dob) => {
+      if (!dob) return null;
+      const today = new Date();
+      const birthDate = new Date(dob);
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const m = today.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+      return age;
+    };
 
-    res.status(200).json({ success: true, requests: formatted });
+    // ---------------------- FORMAT RESPONSE ----------------------
+    const formatted = requests
+      .filter((reqItem) => reqItem.requesterId) // Skip deleted profiles
+      .map((reqItem) => {
+        const user = reqItem.requesterId;
+
+        // Format location
+        const city = user.city || user.currentCity || "";
+        const state = user.state || user.currentState || "";
+        const location = [city, state].filter(Boolean).join(", ");
+
+        // Language formatting
+        const languages = Array.isArray(user.motherTongue)
+          ? user.motherTongue.join(", ")
+          : user.motherTongue || null;
+
+        return {
+          requestId: reqItem._id,
+          requestStatus: reqItem.status,
+          acceptedBy: "me",
+          createdAt: reqItem.createdAt,
+
+          // ---------------------- USER DETAILS ----------------------
+          id: user.id,
+          _id: user._id,
+          name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+          age: calculateAge(user.dateOfBirth),
+
+          height: user.height || null,
+          caste: user.caste || null,
+          religion: user.religion || null,
+          designation: user.designation || user.occupation || null,
+          salary: user.annualIncome || null,
+          education: user.highestEducation || null,
+          maritalStatus: user.maritalStatus || null,
+
+          location,
+          languages,
+          gender: user.gender,
+          profileImage: user.profileImage || null,
+          lastSeen: user.updatedAt || user.createdAt,
+        };
+      });
+
+    // ---------------------- SEND RESPONSE ----------------------
+    return res.status(200).json({
+      success: true,
+      count: formatted.length,
+      data: formatted,
+    });
+
   } catch (error) {
-    console.error('Error fetching accepted requests by me:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error("❌ Error fetching accepted requests by me:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
   }
 };
+
+
 
 
 export const getRequestsAcceptedByOthers = async (req, res) => {
@@ -343,27 +718,88 @@ export const getRequestsAcceptedByOthers = async (req, res) => {
   try {
     const requests = await AccountRequestModel.find({
       requesterId: userId,
-      status: 'accepted',
-    }).populate({
-      path: 'receiverId',
-      select: `
-        id _id firstName lastName dateOfBirth height religion caste occupation
-        annualIncome highestEducation currentCity city state currentState motherTongue
-        gender profileImage updatedAt createdAt designation
-      `,
-    }).sort({ createdAt: -1 });
+      status: "accepted",
+    })
+      .populate({
+        path: "receiverId",
+        select: `
+          id _id firstName lastName dateOfBirth height religion caste occupation
+          annualIncome highestEducation currentCity currentState motherTongue
+          gender profileImage updatedAt createdAt designation
+        `,
+      })
+      .sort({ createdAt: -1 });
 
-    const formatted = requests.map((request) => ({
-      requestId: request._id,
-      status: request.status,
-      createdAt: request.createdAt,
-      user: request.receiverId,
-      acceptedBy: 'other'
-    }));
+    // Calculate Age
+    const calculateAge = (dob) => {
+      if (!dob) return null;
+      const today = new Date();
+      const birth = new Date(dob);
+      let age = today.getFullYear() - birth.getFullYear();
+      const m = today.getMonth() - birth.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+      return age;
+    };
 
-    res.status(200).json({ success: true, requests: formatted });
+    const formatted = requests
+      .filter((req) => req.receiverId) // Skip null deleted accounts
+      .map((request) => {
+        const user = request.receiverId;
+
+        // Location
+        const location = [
+          user.currentCity || user.city,
+          user.currentState || user.state,
+        ]
+          .filter(Boolean)
+          .join(", ");
+
+        // Languages
+        const languages = Array.isArray(user.motherTongue)
+          ? user.motherTongue.join(", ")
+          : user.motherTongue || null;
+
+        return {
+          requestId: request._id,
+          status: request.status,
+          createdAt: request.createdAt,
+          acceptedBy: "other",
+
+          user: {
+            id: user.id,
+            _id: user._id,
+            name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+
+            age: calculateAge(user.dateOfBirth),
+            height: user.height,
+            caste: user.caste,
+            religion: user.religion,
+            designation: user.designation || user.occupation,
+            salary: user.annualIncome,
+            education: user.highestEducation,
+
+            location,
+            languages,
+            gender: user.gender,
+
+            profileImage: user.profileImage,
+            lastSeen: user.updatedAt || user.createdAt,
+          },
+        };
+      });
+
+    return res.status(200).json({
+      success: true,
+      count: formatted.length,
+      requests: formatted,
+    });
+
   } catch (error) {
-    console.error('Error fetching accepted requests by others:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error("❌ Error fetching accepted requests by others:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
+

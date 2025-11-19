@@ -76,49 +76,127 @@ export const saveProfileView = async (req, res) => {
 // ✅ Get Profiles I Viewed
 export const getProfilesIViewed = async (req, res) => {
   const userId = req.userId;
-  console.log("Fetching profiles I viewed for userId:", userId);
 
   try {
-    const views = await ProfileViewModel.find({ userId: userId })
-      .populate('profileIViewed.userId');
+    const views = await ProfileViewModel.find({ userId })
+      .populate("profileIViewed.userId");
 
-    console.log("Fetched views:", views);
+    let viewedUsers = [];
 
-    const formatted = views
-      .filter(v => v.profileIViewed?.userId)
-      .map(v => formatUser(v.profileIViewed.userId));
+    views.forEach(entry => {
+      const p = entry.profileIViewed;
 
-    res.status(200).json({ success: true, data: formatted });
+      if (p?.userId) {
+        viewedUsers.push({
+          ...formatUser(p.userId),
+          viewedAt: p.viewedAt
+        });
+      }
+    });
+
+    // 🛑 Remove Duplicate Profiles (keep latest viewedAt)
+    const uniqueMap = {};
+
+    viewedUsers.forEach(user => {
+      const id = user._id.toString();
+
+      if (!uniqueMap[id] || new Date(user.viewedAt) > new Date(uniqueMap[id].viewedAt)) {
+        uniqueMap[id] = user;
+      }
+    });
+
+    // Convert object back to array
+    const uniqueUsers = Object.values(uniqueMap);
+
+    // 🔥 Sort by latest view
+    uniqueUsers.sort((a, b) => new Date(b.viewedAt) - new Date(a.viewedAt));
+
+    return res.status(200).json({
+      success: true,
+      count: uniqueUsers.length,
+      data: uniqueUsers
+    });
 
   } catch (error) {
-    console.error('[getProfilesIViewed Error]', error);
-    res.status(500).json({ success: false, message: 'Error fetching profiles I viewed', error });
+    console.error("[getProfilesIViewed Error]", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching profiles I viewed",
+      error: error.message
+    });
   }
 };
+
 
 
 // ✅ Get Profiles Who Viewed Me
 export const getProfilesWhoViewedMe = async (req, res) => {
   const userId = req.userId;
-  console.log("Fetching profiles that viewed userId:", userId);
 
   try {
-    const views = await ProfileViewModel.find({ userId: userId })
-      .populate('profileViewedBy.userId');
+    const views = await ProfileViewModel.find({ userId })
+      .populate("profileViewedBy.userId");
 
-    console.log("Fetched views:", views);
+    let viewedByUsers = [];
 
-    const formatted = views
-      .filter(v => v.profileViewedBy?.userId)
-      .map(v => formatUser(v.profileViewedBy.userId));
+    views.forEach(entry => {
+      let item = entry.profileViewedBy;
 
-    res.status(200).json({ success: true, data: formatted });
+      if (!item) return;
+
+      // CASE 1: If profileViewedBy is an ARRAY
+      if (Array.isArray(item)) {
+        item.forEach(p => {
+          if (p?.userId) {
+            viewedByUsers.push({
+              ...formatUser(p.userId),
+              viewedAt: p.viewedAt
+            });
+          }
+        });
+      }
+
+      // CASE 2: If profileViewedBy is an OBJECT
+      else if (item?.userId) {
+        viewedByUsers.push({
+          ...formatUser(item.userId),
+          viewedAt: item.viewedAt
+        });
+      }
+    });
+
+    // 🛑 REMOVE DUPLICATE PROFILES
+    const uniqueMap = {};
+
+    viewedByUsers.forEach(user => {
+      const id = user._id.toString();
+
+      if (!uniqueMap[id] || new Date(user.viewedAt) > new Date(uniqueMap[id].viewedAt)) {
+        uniqueMap[id] = user;
+      }
+    });
+
+    const uniqueUsers = Object.values(uniqueMap);
+
+    // 🔥 SORT BY MOST RECENT VIEWS
+    uniqueUsers.sort((a, b) => new Date(b.viewedAt) - new Date(a.viewedAt));
+
+    return res.status(200).json({
+      success: true,
+      count: uniqueUsers.length,
+      data: uniqueUsers
+    });
 
   } catch (error) {
-    console.error('[getProfilesWhoViewedMe Error]', error);
-    res.status(500).json({ success: false, message: 'Error fetching viewers', error });
+    console.error("[getProfilesWhoViewedMe Error]", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching viewers",
+      error: error.message
+    });
   }
 };
+
 
 
 // ✅ Combined Summary (I viewed + Who viewed me)

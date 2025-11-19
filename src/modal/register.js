@@ -127,6 +127,12 @@ horoscope: {
 
 healthInformation: { type: String },
 aboutYourself: { type: String },
+galleryImages: {
+  type: [String],
+  default: [],
+},
+
+
 casteNoBar: { type: Boolean },
 familyIncome: { type: String },
 familyBackground: { type: String },
