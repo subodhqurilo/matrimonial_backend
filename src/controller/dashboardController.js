@@ -1,120 +1,130 @@
-import moment from 'moment';
+
 import RegisterModel from '../modal/register.js';
 import mongoose from 'mongoose'; 
 import ReportModel from '../modal/ReportModel.js';
 import MatchModel from '../modal/MatchModel.js';
+import moment from "moment-timezone";
+import { Parser } from "json2csv";
+
+const now = moment().tz("Asia/Kolkata");
+ 
 
  
+ 
 
- 
- 
+const percent = (current, previous) => {
+  if (previous > 0) return Number((((current - previous) / previous) * 100).toFixed(1));
+  if (current > 0) return 100;
+  return 0;
+};
 
 export const getStatsSummary = async (req, res) => {
   try {
-    const now = moment();
+    // Use IST timezone everywhere
+    const now = moment().tz("Asia/Kolkata");
 
-    const todayStart = now.clone().startOf('day');
-    const todayEnd = now.clone().endOf('day');
+    // TODAY / YESTERDAY
+    const todayStart   = now.clone().startOf("day");
+    const tomorrowStart = todayStart.clone().add(1, "day");
 
-    const yesterdayStart = now.clone().subtract(1, 'day').startOf('day');
-    const yesterdayEnd = now.clone().subtract(1, 'day').endOf('day');
+    const yesterdayStart = todayStart.clone().subtract(1, "day");
+    const yesterdayEnd   = todayStart.clone(); // start of today
 
-    const thisWeekStart = now.clone().startOf('isoWeek');
-    const thisWeekEnd = now.clone().endOf('isoWeek');
+    // THIS WEEK (Mon–Sun)
+    const thisWeekStart = now.clone().startOf("isoWeek");
+    const nextWeekStart = thisWeekStart.clone().add(1, "week");
 
-    const lastWeekStart = now.clone().subtract(1, 'weeks').startOf('isoWeek');
-    const lastWeekEnd = now.clone().subtract(1, 'weeks').endOf('isoWeek');
+    const lastWeekStart = thisWeekStart.clone().subtract(1, "week");
+    const lastWeekEnd   = thisWeekStart.clone(); // start of this week
 
-    const totalUsers = await RegisterModel.countDocuments();
+    // ACTIVE USERS (Last 24 hours)
+    const last24HoursStart = now.clone().subtract(24, "hours");
+    const lastWeekSameTimeStart = now.clone().subtract(8, "days");
+    const lastWeekSameTimeEnd   = now.clone().subtract(7, "days");
 
-    const newSignupsToday = await RegisterModel.countDocuments({
-      createdAt: { $gte: todayStart.toDate(), $lte: todayEnd.toDate() },
-    });
+    // QUERIES
+    const [
+      totalUsers,
+      newSignupsToday,
+      newSignupsYesterday,
+      verifiedThisWeek,
+      verifiedLastWeek,
+      pendingVerifications,
+      pendingThisWeek,
+      pendingLastWeek,
+      activeUsers,
+      activeUsersLastWeek,
+      pendingReports,
+      blockedReports
+    ] = await Promise.all([
 
-    const newSignupsYesterday = await RegisterModel.countDocuments({
-      createdAt: { $gte: yesterdayStart.toDate(), $lte: yesterdayEnd.toDate() },
-    });
+      RegisterModel.countDocuments(),
 
-    const signupChangePercent = newSignupsYesterday > 0
-      ? (((newSignupsToday - newSignupsYesterday) / newSignupsYesterday) * 100).toFixed(1)
-      : (newSignupsToday > 0 ? 100 : 0).toFixed(1);
+      RegisterModel.countDocuments({ createdAt: { $gte: todayStart.toDate(), $lt: tomorrowStart.toDate() } }),
 
-    const verifiedProfilesThisWeek = await RegisterModel.countDocuments({
-      verification: { $exists: true, $ne: '' },
-      createdAt: { $gte: thisWeekStart.toDate(), $lte: thisWeekEnd.toDate() },
-    });
+      RegisterModel.countDocuments({ createdAt: { $gte: yesterdayStart.toDate(), $lt: yesterdayEnd.toDate() } }),
 
-    const verifiedProfilesLastWeek = await RegisterModel.countDocuments({
-      verification: { $exists: true, $ne: '' },
-      createdAt: { $gte: lastWeekStart.toDate(), $lte: lastWeekEnd.toDate() },
-    });
+      RegisterModel.countDocuments({
+        verification: { $exists: true, $ne: "" },
+        createdAt: { $gte: thisWeekStart.toDate(), $lt: nextWeekStart.toDate() }
+      }),
 
-    const verifiedChangePercent = verifiedProfilesLastWeek > 0
-      ? (((verifiedProfilesThisWeek - verifiedProfilesLastWeek) / verifiedProfilesLastWeek) * 100).toFixed(1)
-      : (verifiedProfilesThisWeek > 0 ? 100 : 0).toFixed(1);
+      RegisterModel.countDocuments({
+        verification: { $exists: true, $ne: "" },
+        createdAt: { $gte: lastWeekStart.toDate(), $lt: lastWeekEnd.toDate() }
+      }),
 
-    const pendingVerifications = await RegisterModel.countDocuments({ adminApprovel: 'pending' });
+      RegisterModel.countDocuments({ adminApprovel: "pending" }),
 
-    const pendingVerificationsThisWeek = await RegisterModel.countDocuments({
-      adminApprovel: 'pending',
-      createdAt: { $gte: thisWeekStart.toDate(), $lte: thisWeekEnd.toDate() },
-    });
+      RegisterModel.countDocuments({
+        adminApprovel: "pending",
+        createdAt: { $gte: thisWeekStart.toDate(), $lt: nextWeekStart.toDate() }
+      }),
 
-    const pendingVerificationsLastWeek = await RegisterModel.countDocuments({
-      adminApprovel: 'pending',
-      createdAt: { $gte: lastWeekStart.toDate(), $lte: lastWeekEnd.toDate() },
-    });
+      RegisterModel.countDocuments({
+        adminApprovel: "pending",
+        createdAt: { $gte: lastWeekStart.toDate(), $lt: lastWeekEnd.toDate() }
+      }),
 
-    const pendingChangePercent = pendingVerificationsLastWeek > 0
-      ? (((pendingVerificationsThisWeek - pendingVerificationsLastWeek) / pendingVerificationsLastWeek) * 100).toFixed(1)
-      : (pendingVerificationsThisWeek > 0 ? 100 : 0).toFixed(1);
+      RegisterModel.countDocuments({
+        lastLoginAt: { $gte: last24HoursStart.toDate() }
+      }),
 
-    const activeUsers = await RegisterModel.countDocuments({
-      lastLoginAt: { $gte: now.clone().subtract(1, 'days').toDate() },
-    });
+      RegisterModel.countDocuments({
+        lastLoginAt: { $gte: lastWeekSameTimeStart.toDate(), $lt: lastWeekSameTimeEnd.toDate() }
+      }),
 
-    const activeUsersLastWeek = await RegisterModel.countDocuments({
-      lastLoginAt: {
-        $gte: now.clone().subtract(8, 'days').toDate(),
-        $lte: now.clone().subtract(7, 'days').toDate(),
-      },
-    });
+      ReportModel.countDocuments({ status: "Pending" }),
 
-    const activeUsersChangePercent = activeUsersLastWeek > 0
-      ? (((activeUsers - activeUsersLastWeek) / activeUsersLastWeek) * 100).toFixed(1)
-      : (activeUsers > 0 ? 100 : 0).toFixed(1);
+      ReportModel.countDocuments({ status: "Blocked" }),
 
-  const pendingReportedCount = await ReportModel.countDocuments({ status: 'Pending' });
-const pendingReportedPercent = totalUsers > 0
-  ? ((pendingReportedCount / totalUsers) * 100).toFixed(1)
-  : 0;
+    ]);
 
-
-   const totalBlockedReportsCount = await ReportModel.countDocuments({ status: 'Blocked' });
-
-    const blockedPercent = totalUsers > 0
-      ? ((totalBlockedReportsCount / totalUsers) * 100).toFixed(1)
-      : 0;
-
+    // RESPONSE
     res.status(200).json({
       totalUsers,
       newSignups: newSignupsToday,
-      signupChangePercent,
-      verifiedProfiles: verifiedProfilesThisWeek,
-      verifiedChangePercent,
+      signupChangePercent: percent(newSignupsToday, newSignupsYesterday),
+
+      verifiedProfiles: verifiedThisWeek,
+      verifiedChangePercent: percent(verifiedThisWeek, verifiedLastWeek),
+
       pendingVerifications,
-      pendingChangePercent,
+      pendingChangePercent: percent(pendingThisWeek, pendingLastWeek),
+
       activeUsers,
-      activeUsersChangePercent,
-      reportedPercent: parseFloat(pendingReportedPercent),
-      blockedPercent: parseFloat(blockedPercent),
+      activeUsersChangePercent: percent(activeUsers, activeUsersLastWeek),
+
+      reportedPercent: totalUsers ? Number(((pendingReports / totalUsers) * 100).toFixed(1)) : 0,
+      blockedPercent: totalUsers ? Number(((blockedReports / totalUsers) * 100).toFixed(1)) : 0,
     });
 
   } catch (error) {
-    console.error('Stats Fetch Error:', error);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+    console.error("Stats Error:", error);
+    res.status(500).json({ message: "Internal Server Error", error: error.message });
   }
 };
+
 
 
 
@@ -123,10 +133,44 @@ const pendingReportedPercent = totalUsers > 0
 
 export const getSignupGender = async (req, res) => {
   try {
+    const now = moment().tz("Asia/Kolkata");
 
-    const allUsers = await RegisterModel.find({});
+    const currentMonthStart = now.clone().startOf("month").toDate();
+    const nextMonthStart = now.clone().startOf("month").add(1, "month").toDate();
+
+    const previousMonthStart = now.clone().subtract(1, "month").startOf("month").toDate();
+    const previousMonthEnd = now.clone().startOf("month").toDate();
+
+    const sevenDaysAgo = now.clone().subtract(7, "days").toDate();
+    const today = now.toDate();
+
+    // ----------------------------------
+    // 1️⃣ GENDER COUNTS
+    // ----------------------------------
+    const genderAgg = await RegisterModel.aggregate([
+      {
+        $group: {
+          _id: "$gender",
+          count: { $sum: 1 }
+        }
+      }
+    ]);
 
     const genderCounts = { Male: 0, Female: 0, Others: 0 };
+    genderAgg.forEach(g => {
+      if (g._id === "Male") genderCounts.Male = g.count;
+      else if (g._id === "Female") genderCounts.Female = g.count;
+      else genderCounts.Others += g.count;
+    });
+
+    // ----------------------------------
+    // 2️⃣ MATCH STATS
+    // ----------------------------------
+    const users = await RegisterModel.find(
+      {},
+      { createdAt: 1, adminApprovel: 1, isMobileVerified: 1 }
+    );
+
     const matchStats = {
       stillLooking: 0,
       matched: 0,
@@ -134,158 +178,254 @@ export const getSignupGender = async (req, res) => {
       inactive: 0,
     };
 
-    
-    const today = new Date();
-    const currentMonth = today.getMonth();
-    const currentYear = today.getFullYear();
-
-    const signInDataMap = new Map(); 
-
-  
-    const daysInCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-    const daysInPreviousMonth = new Date(currentYear, currentMonth, 0).getDate(); 
-
-    for (let i = 1; i <= daysInCurrentMonth; i++) {
-      const dayKey = String(i).padStart(2, '0');
-      signInDataMap.set(dayKey, { day: dayKey, july: 0, june: 0 }); 
-    }
- 
-
-    allUsers.forEach(user => {
+    users.forEach(user => {
       const createdAt = new Date(user.createdAt);
-      const userMonth = createdAt.getMonth();
-      const userYear = createdAt.getFullYear();
-      const userDay = String(createdAt.getDate()).padStart(2, '0');
 
-    
-      if (user.gender in genderCounts) {
-        genderCounts[user.gender]++;
-      } else {
-        genderCounts.Others++;
-      }
-
-   
-      if (user.adminApprovel === 'approved') {
+      if (user.adminApprovel === "approved") {
         matchStats.matched++;
       } else if (!user.isMobileVerified) {
         matchStats.inactive++;
+      } else if (createdAt >= sevenDaysAgo) {
+        matchStats.newlyRegistered++;
       } else {
-     
-        const diffTime = Math.abs(today - createdAt);
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        if (diffDays <= 7) {
-          matchStats.newlyRegistered++;
-        } else {
-          matchStats.stillLooking++;
-        }
-      }
-
-    
-      if (userYear === currentYear) {
-        if (userMonth === currentMonth) {
-          if (signInDataMap.has(userDay)) {
-            signInDataMap.get(userDay).july++;
-          }
-        } else if (userMonth === currentMonth - 1 || (currentMonth === 0 && userMonth === 11)) {  
-          if (signInDataMap.has(userDay)) {
-            signInDataMap.get(userDay).june++; 
-          }
-        }
+        matchStats.stillLooking++;
       }
     });
 
-    const signInData = Array.from(signInDataMap.values()).sort((a, b) => parseInt(a.day) - parseInt(b.day));
+    // ----------------------------------
+    // 3️⃣ MONTH COMPARISON GRAPH (Current vs Previous Month)
+    // ----------------------------------
 
+    const monthAgg = await RegisterModel.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: previousMonthStart, $lt: nextMonthStart }
+        }
+      },
+      {
+        $project: {
+          day: { $dayOfMonth: "$createdAt" },
+          month: { $month: "$createdAt" }
+        }
+      },
+      {
+        $group: {
+          _id: { day: "$day", month: "$month" },
+          count: { $sum: 1 }
+        }
+      }
+    ]);
 
+    const daysInCurrent = now.daysInMonth();
+    const daysInPrev = now.clone().subtract(1, "month").daysInMonth();
+
+    const signInData = [];
+
+    for (let day = 1; day <= daysInCurrent; day++) {
+      signInData.push({
+        day: String(day).padStart(2, "0"),
+        currentMonth: 0,
+        previousMonth: 0,
+      });
+    }
+
+    monthAgg.forEach(entry => {
+      const dayKey = String(entry._id.day).padStart(2, "0");
+
+      const month = entry._id.month;
+      if (month === now.month() + 1) {
+        // current month
+        const d = signInData.find(v => v.day === dayKey);
+        if (d) d.currentMonth += entry.count;
+      } else if (month === now.clone().subtract(1, "month").month() + 1) {
+        // previous month only if that day exists in current month (UI safe)
+        const d = signInData.find(v => v.day === dayKey);
+        if (d) d.previousMonth += entry.count;
+      }
+    });
+
+    // ----------------------------------
+    // FINAL RESPONSE
+    // ----------------------------------
 
     res.json({
-      signInData,
       genderData: [
-        { name: 'Male', value: genderCounts.Male },
-        { name: 'Female', value: genderCounts.Female },
-        // { name: 'Others', value: genderCounts.Others },
+        { name: "Male", value: genderCounts.Male },
+        { name: "Female", value: genderCounts.Female },
+        // { name: "Others", value: genderCounts.Others }
       ],
       matchData: [
-        { name: 'Still Looking', value: matchStats.stillLooking },
-        { name: 'Successfully Matched', value: matchStats.matched },
-        { name: 'Newly Registered', value: matchStats.newlyRegistered },
-        { name: 'Inactive', value: matchStats.inactive },
+        { name: "Still Looking", value: matchStats.stillLooking },
+        { name: "Successfully Matched", value: matchStats.matched },
+        { name: "Newly Registered", value: matchStats.newlyRegistered },
+        { name: "Inactive", value: matchStats.inactive },
       ],
-      totalJulySignIns: signInData.reduce((sum, dayData) => sum + dayData.july, 0),
+      signInData, // current vs previous month graph
+      totalCurrentMonthSignIns: signInData.reduce((s, v) => s + v.currentMonth, 0)
     });
 
   } catch (err) {
-    console.error('Analytics error:', err);
-    res.status(500).json({ error: 'Failed to fetch analytics data' });
+    console.error("Analytics error:", err);
+    res.status(500).json({ error: "Failed to fetch analytics data" });
   }
 };
 
+
  
-
-
 export const getUsers = async (req, res) => {
   try {
-    const { search = '', status, gender, page = 1, limit = 5 } = req.query;
+    const {
+      search = "",
+      status,
+      gender,
+      city,
+      state,
+      verified,
+      active,
+      sortBy = "createdAt",
+      sortOrder = "desc",
+      csv = false
+    } = req.query;
 
     const query = {};
 
+    // ------------------------------------
+    // 🔍 SEARCH
+    // ------------------------------------
     if (search) {
-      // Try to search by full _id if it's a valid ObjectId, otherwise search by name fields
-if (mongoose.Types.ObjectId.isValid(search)) {
-  query._id = new mongoose.Types.ObjectId(String(search)); // safe
-}
- 
-      else {
-        // If it's not a valid ObjectId, search across name fields
+      if (mongoose.Types.ObjectId.isValid(search)) {
+        query._id = new mongoose.Types.ObjectId(search);
+      } else {
         query.$or = [
-          { id: { $regex: search, $options: 'i' } },
-          { fullName: { $regex: search, $options: 'i' } },
-          { middleName: { $regex: search, $options: 'i' } },
-          { lastName: { $regex: search, $options: 'i' } },
+          { firstName: { $regex: search, $options: "i" } },
+          { lastName: { $regex: search, $options: "i" } },
+          { middleName: { $regex: search, $options: "i" } },
+          { fullName: { $regex: search, $options: "i" } },
+          { mobile: { $regex: search, $options: "i" } },
+          { email: { $regex: search, $options: "i" } }
         ];
       }
     }
 
-    if (status) {
-      query.adminApprovel = status;
+    // ------------------------------------
+    // 🟡 FILTERS
+    // ------------------------------------
+    if (status) query.adminApprovel = status;          // approved, pending, blocked
+    if (gender) query.gender = gender;                 // Male/Female/Other
+    if (city) query.currentCity = city;                
+    if (state) query.state = state;
+
+    if (verified !== undefined) {
+      query.verification = verified === "true" ? "Verified" : { $ne: "Verified" };
     }
 
-    if (gender) {
-      query.gender = gender;
+    // Active users last X days
+    if (active) {
+      const since = moment().tz("Asia/Kolkata").subtract(Number(active), "days").toDate();
+      query.lastLoginAt = { $gte: since };
     }
 
-    const total = await RegisterModel.countDocuments(query);
+    // ------------------------------------
+    // 🔼 SORTING
+    // ------------------------------------
+    const sortFieldMap = {
+      id: "_id",
+      name: "fullName",
+      location: "currentCity",
+      gender: "gender",
+      joined: "createdAt",
+      status: "adminApprovel",
+      lastActive: "lastLoginAt"
+    };
 
+    const sortField = sortFieldMap[sortBy] || "createdAt";
+    const sort = { [sortField]: sortOrder === "asc" ? 1 : -1 };
+
+    // ------------------------------------
+    // 📥 FETCH USERS
+    // ------------------------------------
     const users = await RegisterModel.find(query)
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit))
-      .sort({ createdAt: -1 });
+      .sort(sort)
+      .collation({ locale: "en", strength: 2 });
 
-    const formattedUsers = users.map((user) => ({
-      // Consider if slicing _id is really what you want for display.
-      // A full ID or a proper sequential user ID might be better.
-      id: `#${user.id}`,
-      name: `${user.fullName || ''} ${user.middleName || ''} ${user.lastName || ''}`.trim(),
-      location: user.currentCity || user.city || 'N/A',
-      gender: user.gender || 'N/A',
-      joined: moment(user.createdAt).format('DD MMM, YYYY'),
-      verified: user.verification === 'Verified',
-      status: user.adminApprovel || 'Pending',
-      lastActive: moment(user.updatedAt).format('DD MMM, YYYY'),
+    // ------------------------------------
+    // 🎨 FORMAT DATA FOR UI
+    // ------------------------------------
+    const formatted = users.map((user, index) => {
+      const userId = String(index + 1).padStart(6, "0");
 
-    }));
+      const fullName =
+        `${user.firstName || ""} ${user.middleName || ""} ${user.lastName || ""}`.trim() ||
+        user.fullName ||
+        "N/A";
 
+      const location = user.currentCity || user.city || user.state || "N/A";
+
+      const verifiedStatus = user.verification === "Verified";
+
+      return {
+        id: `#${userId}`,
+        mongoId: user._id,
+
+        name: fullName,
+        location,
+        gender: user.gender || "N/A",
+
+        joined: moment(user.createdAt).format("DD MMM, YYYY"),
+
+        verified: verifiedStatus ? "Yes" : "No",
+        verifiedIcon: verifiedStatus ? "green" : "red",
+
+        status:
+          user.adminApprovel?.charAt(0).toUpperCase() +
+            user.adminApprovel?.slice(1).toLowerCase() || "Pending",
+
+        lastActive: user.lastLoginAt
+          ? moment(user.lastLoginAt).format("DD MMM, YYYY")
+          : "N/A",
+      };
+    });
+
+    // ------------------------------------
+    // 📤 CSV EXPORT
+    // ------------------------------------
+    if (csv === "true") {
+      const fields = [
+        "id",
+        "name",
+        "location",
+        "gender",
+        "joined",
+        "verified",
+        "status",
+        "lastActive"
+      ];
+
+      const parser = new Parser({ fields });
+      const csvData = parser.parse(formatted);
+
+      res.header("Content-Type", "text/csv");
+      res.attachment("users.csv");
+      return res.send(csvData);
+    }
+
+    // ------------------------------------
+    // 📤 JSON RESPONSE
+    // ------------------------------------
     res.status(200).json({
-      data: formattedUsers,
-      totalPages: Math.ceil(total / limit),
-      currentPage: parseInt(page),
+      totalUsers: formatted.length,
+      data: formatted
     });
 
   } catch (error) {
-    console.error('Error fetching users:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    console.error("getUsers error:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 };
+
+
+
+
 
 
 
@@ -294,211 +434,407 @@ if (mongoose.Types.ObjectId.isValid(search)) {
 
 export const getUserManage = async (req, res) => {
   try {
-    const now = moment();
-    const lastWeek = moment().subtract(7, 'days');
+    const now = moment().tz("Asia/Kolkata");
 
+    const todayStart = now.clone().startOf("day").toDate();
+    const todayEnd = now.clone().endOf("day").toDate();
+
+    const yesterdayStart = now.clone().subtract(1, "day").startOf("day").toDate();
+    const yesterdayEnd = now.clone().subtract(1, "day").endOf("day").toDate();
+
+    const thisWeekStart = now.clone().startOf("isoWeek").toDate();
+    const lastWeekStart = now.clone().subtract(1, "week").startOf("isoWeek").toDate();
+    const lastWeekEnd = now.clone().subtract(1, "week").endOf("isoWeek").toDate();
+
+    // --------------------------------------------
+    // 1️⃣ TOTAL USERS (vs last week)
+    // --------------------------------------------
     const [totalUsers, totalUsersLastWeek] = await Promise.all([
       RegisterModel.countDocuments(),
-      RegisterModel.countDocuments({ createdAt: { $lte: lastWeek.toDate() } }),
+      RegisterModel.countDocuments({
+        createdAt: { $lte: lastWeekEnd },
+      }),
     ]);
 
-   const startOfToday = moment().startOf('day').toDate();
-const endOfToday = moment().endOf('day').toDate();
+    // --------------------------------------------
+    // 2️⃣ NEW SIGNUPS (Today vs Yesterday)
+    // --------------------------------------------
+    const [newSignupsToday, newSignupsYesterday] = await Promise.all([
+      RegisterModel.countDocuments({
+        createdAt: { $gte: todayStart, $lte: todayEnd },
+      }),
+      RegisterModel.countDocuments({
+        createdAt: { $gte: yesterdayStart, $lte: yesterdayEnd },
+      }),
+    ]);
 
-const startOfYesterday = moment().subtract(1, 'day').startOf('day').toDate();
-const endOfYesterday = moment().subtract(1, 'day').endOf('day').toDate();
-
-const [newSignups, newSignupsLastWeek] = await Promise.all([
-  RegisterModel.countDocuments({
-    createdAt: { $gte: startOfToday, $lte: endOfToday },
-  }),
-  RegisterModel.countDocuments({
-    createdAt: { $gte: startOfYesterday, $lte: endOfYesterday },
-  }),
-]);
-
-
-    const profileCompleted = await RegisterModel.countDocuments({
+    // --------------------------------------------
+    // 3️⃣ PROFILE COMPLETED VS LAST WEEK
+    // --------------------------------------------
+    const profileCompletedQuery = {
       profileImage: { $ne: null },
-      profileFor: { $ne: null },
       gender: { $ne: null },
       currentCity: { $ne: null },
+    };
+
+    const profileCompleted = await RegisterModel.countDocuments(profileCompletedQuery);
+
+    const profileCompletedLastWeek = await RegisterModel.countDocuments({
+      ...profileCompletedQuery,
+      createdAt: { $lte: lastWeekEnd },
     });
 
     const profileIncomplete = totalUsers - profileCompleted;
+    const profileIncompleteLastWeek = totalUsersLastWeek - profileCompletedLastWeek;
 
+    // --------------------------------------------
+    // 4️⃣ APPROVED & PENDING (vs last week)
+    // --------------------------------------------
     const approvedProfilesCount = await RegisterModel.countDocuments({
-      adminApprovel: 'approved',
+      adminApprovel: "approved",
     });
 
-    // Fetch a sample of approved profile images
-    const approvedProfileImages = await RegisterModel.find({
-      adminApprovel: 'approved',
-      profileImage: { $ne: null },
-    })
-      .select('profileImage')
-      .limit(4); // Limit to 4 images for display
-    const approvedImageUrls = approvedProfileImages.map(
-      (user) => user.profileImage
-    );
+    const approvedProfilesLastWeek = await RegisterModel.countDocuments({
+      adminApprovel: "approved",
+      createdAt: { $lte: lastWeekEnd },
+    });
 
     const pendingProfilesCount = await RegisterModel.countDocuments({
-      adminApprovel: 'pending',
+      adminApprovel: "pending",
     });
 
-    // Fetch a sample of pending profile images
-    const pendingProfileImages = await RegisterModel.find({
-      adminApprovel: 'pending',
-      profileImage: { $ne: null },
-    })
-      .select('profileImage')
-      .limit(4); // Limit to 4 images for display
-    const pendingImageUrls = pendingProfileImages.map(
-      (user) => user.profileImage
-    );
+    const pendingProfilesLastWeek = await RegisterModel.countDocuments({
+      adminApprovel: "pending",
+      createdAt: { $lte: lastWeekEnd },
+    });
 
+    // --------------------------------------------
+    // 5️⃣ FETCH PROFILE IMAGES
+    // --------------------------------------------
+    const [approvedProfileImages, pendingProfileImages] = await Promise.all([
+      RegisterModel.find({
+        adminApprovel: "approved",
+        profileImage: { $ne: null },
+      })
+        .select("profileImage")
+        .limit(4),
+
+      RegisterModel.find({
+        adminApprovel: "pending",
+        profileImage: { $ne: null },
+      })
+        .select("profileImage")
+        .limit(4),
+    ]);
+
+    const approvedImageUrls = approvedProfileImages.map((u) => u.profileImage);
+    const pendingImageUrls = pendingProfileImages.map((u) => u.profileImage);
+
+    // --------------------------------------------
+    // HELPERS
+    // --------------------------------------------
     const percentageChange = (current, previous) => {
-      if (previous === 0) return 0;
+      if (previous === 0) return 100;
       return +(((current - previous) / previous) * 100).toFixed(1);
     };
 
-    const direction = (change) => (change >= 0 ? 'up' : 'down');
+    const direction = (change) => (change >= 0 ? "up" : "down");
 
-    // For profileCompleted and profileIncomplete change, you'll need to define how "last week" is calculated for these specific metrics more precisely if they aren't just based on totalUsers last week.
-    // For simplicity, I'm just putting placeholder values for change as it seems the original code did too.
-    const profileCompletedLastWeek = 0; // You'll need to calculate this based on your logic
-    const profileIncompleteLastWeek = 0; // You'll need to calculate this based on your logic
-
-    // Placeholder for approved/pending change from last week - you'll need to implement actual calculation
-    const approvedProfilesLastWeek = 100; // Example
-    const pendingProfilesLastWeek = 50; // Example
-
-
+    // --------------------------------------------
+    // FINAL RESPONSE
+    // --------------------------------------------
     res.status(200).json({
       totalUsers: {
         count: totalUsers,
         change: percentageChange(totalUsers, totalUsersLastWeek),
         trend: direction(percentageChange(totalUsers, totalUsersLastWeek)),
       },
+
       newSignups: {
-        count: newSignups,
-        change: percentageChange(newSignups, newSignupsLastWeek),
-        trend: direction(percentageChange(newSignups, newSignupsLastWeek)),
+        count: newSignupsToday,
+        change: percentageChange(newSignupsToday, newSignupsYesterday),
+        trend: direction(percentageChange(newSignupsToday, newSignupsYesterday)),
       },
+
       profileCompleted: {
         count: profileCompleted,
         change: percentageChange(profileCompleted, profileCompletedLastWeek),
         trend: direction(percentageChange(profileCompleted, profileCompletedLastWeek)),
       },
+
       profileIncomplete: {
         count: profileIncomplete,
         change: percentageChange(profileIncomplete, profileIncompleteLastWeek),
         trend: direction(percentageChange(profileIncomplete, profileIncompleteLastWeek)),
       },
+
       approvedProfiles: {
         count: approvedProfilesCount,
-        change: percentageChange(approvedProfilesCount, approvedProfilesLastWeek), // Replace with actual calculation
+        change: percentageChange(approvedProfilesCount, approvedProfilesLastWeek),
         trend: direction(percentageChange(approvedProfilesCount, approvedProfilesLastWeek)),
-        profileImage: approvedImageUrls, // Now includes actual image URLs
+        profileImage: approvedImageUrls,
       },
+
       pendingProfiles: {
         count: pendingProfilesCount,
-        change: percentageChange(pendingProfilesCount, pendingProfilesLastWeek), // Replace with actual calculation
+        change: percentageChange(pendingProfilesCount, pendingProfilesLastWeek),
         trend: direction(percentageChange(pendingProfilesCount, pendingProfilesLastWeek)),
-        profileImage: pendingImageUrls, // Now includes actual image URLs
+        profileImage: pendingImageUrls,
       },
     });
   } catch (err) {
-    res.status(500).json({ message: 'Failed to fetch user stats', error: err.message });
+    res.status(500).json({
+      message: "Failed to fetch user stats",
+      error: err.message,
+    });
   }
 };
+
 
 
 
 export const getAllManageUserData = async (req, res) => {
   try {
     const {
-      page = 1,
-      limit = 10,
-      search = '',
-      statusFilter = '',
-      genderFilter = '',
+      search = "",
+      statusFilter = "",
+      genderFilter = "",
+      sortBy = "createdAt",
+      sortOrder = "desc",
     } = req.query;
 
     const query = {};
 
-    if (search) {
-      query.$or = [
-        {id:{$regex: search, $options: 'i' }},
-        { mobile: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { fullName: { $regex: search, $options: 'i' } },
-      ];
+    // ------------------------------------
+    // 🔍 SAFE SEARCH (NO CAST ERROR)
+    // ------------------------------------
+    if (search.trim()) {
+      const s = search.trim();
+
+      // Only treat as ObjectId if EXACT 24-char hex
+      if (/^[0-9a-fA-F]{24}$/.test(s)) {
+        query._id = new mongoose.Types.ObjectId(s);
+      } else {
+        query.$or = [
+          { fullName: { $regex: s, $options: "i" } },
+          { firstName: { $regex: s, $options: "i" } },
+          { middleName: { $regex: s, $options: "i" } },
+          { lastName: { $regex: s, $options: "i" } },
+          { mobile: { $regex: s, $options: "i" } },
+          { email: { $regex: s, $options: "i" } },
+        ];
+      }
     }
 
-    if (statusFilter) {
-      query.adminApprovel = statusFilter;
+    // ------------------------------------
+    // 🟡 FILTERS (CASE-INSENSITIVE)
+    // ------------------------------------
+    if (statusFilter.trim()) {
+      query.adminApprovel = {
+        $regex: `^${statusFilter.trim()}$`,
+        $options: "i",
+      };
     }
 
-    if (genderFilter) {
-      query.gender = genderFilter;
+    if (genderFilter.trim()) {
+      query.gender = {
+        $regex: `^${genderFilter.trim()}$`,
+        $options: "i",
+      };
     }
 
-    const total = await RegisterModel.countDocuments(query);
+    // ------------------------------------
+    // 🔼 SORTING MAP
+    // ------------------------------------
+    const sortFields = {
+      name: "fullName",
+      email: "email",
+      mobile: "mobile",
+      gender: "gender",
+      joined: "createdAt",
+      status: "adminApprovel",
+      lastActive: "lastLoginAt",
+    };
 
+    const sortKey = sortFields[sortBy] || "createdAt";
+    const sortDirection = sortOrder === "asc" ? 1 : -1;
+
+    const sort = { [sortKey]: sortDirection };
+
+    // ------------------------------------
+    // 📥 FETCH USERS (NO PAGINATION)
+    // ------------------------------------
     const users = await RegisterModel.find(query)
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(Number(limit));
+      .sort(sort)
+      .collation({ locale: "en", strength: 2 });
 
+    // ------------------------------------
+    // 🎨 FORMAT CLEAN RESPONSE
+    // ------------------------------------
+    const formatted = users.map((u, index) => {
+      const userId = String(index + 1).padStart(6, "0");
+
+      const name =
+        u.fullName ||
+        `${u.firstName || ""} ${u.middleName || ""} ${u.lastName || ""}`.trim() ||
+        "N/A";
+
+      const status = u.adminApprovel
+        ? u.adminApprovel.charAt(0).toUpperCase() +
+          u.adminApprovel.slice(1).toLowerCase()
+        : "Pending";
+
+      const gender = u.gender
+        ? u.gender.charAt(0).toUpperCase() + u.gender.slice(1).toLowerCase()
+        : "N/A";
+
+      return {
+        id: `#${userId}`,
+        mongoId: u._id,
+        fullName: name,
+        email: u.email || "N/A",
+        mobile: u.mobile || "N/A",
+        gender,
+        status,
+        location: u.currentCity || u.city || "N/A",
+        joined: moment(u.createdAt).format("DD MMM, YYYY"),
+        lastActive: u.lastLoginAt
+          ? moment(u.lastLoginAt).format("DD MMM, YYYY")
+          : "N/A",
+      };
+    });
+
+    // ------------------------------------
+    // RESPONSE
+    // ------------------------------------
     res.status(200).json({
       success: true,
-      total,
-      page: Number(page),
-      limit: Number(limit),
-      totalPages: Math.ceil(total / limit),
-      data: users,
+      total: formatted.length,
+      data: formatted,
     });
+
   } catch (error) {
+    console.error("User Manage Fetch Error:", error);
     res.status(500).json({
       success: false,
-      message: 'Error while fetching users',
+      message: "Error while fetching users",
       error: error.message,
     });
   }
 };
 
+
+
+
+
+
 export const updateUserById = async (req, res) => {
   try {
     const { userId } = req.params;
-    const updateFields = req.body;
+    let updateFields = req.body;
 
+    // ------------------------------------
+    // 🛡 SAFE UPDATE: Only allow valid fields
+    // ------------------------------------
+    const allowedFields = [
+      "fullName",
+      "firstName",
+      "middleName",
+      "lastName",
+      "email",
+      "mobile",
+      "gender",
+      "adminApprovel",
+      "currentCity",
+      "city",
+      "profileFor",
+      "verification",
+      "isMobileVerified",
+      "lastLoginAt"
+    ];
+
+    // Filter only allowed keys
+    const filteredUpdate = {};
+    for (let key in updateFields) {
+      if (allowedFields.includes(key)) {
+        filteredUpdate[key] = updateFields[key];
+      }
+    }
+
+    // ------------------------------------
+    // 🟡 NORMALIZE STATUS
+    // ------------------------------------
+    if (filteredUpdate.adminApprovel) {
+      const val = filteredUpdate.adminApprovel.toLowerCase();
+
+      const validStatus = ["approved", "pending", "reject", "blocked"];
+
+      if (!validStatus.includes(val)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid status value. Use approved/pending/reject/blocked.",
+        });
+      }
+
+      filteredUpdate.adminApprovel = val;
+    }
+
+    // ------------------------------------
+    // 🟣 NORMALIZE GENDER
+    // ------------------------------------
+    if (filteredUpdate.gender) {
+      filteredUpdate.gender =
+        filteredUpdate.gender.charAt(0).toUpperCase() +
+        filteredUpdate.gender.slice(1).toLowerCase();
+    }
+
+    // ------------------------------------
+    // 🔄 UPDATE USER
+    // ------------------------------------
     const updatedUser = await RegisterModel.findByIdAndUpdate(
       userId,
-      updateFields,
+      filteredUpdate,
       { new: true }
     );
 
     if (!updatedUser) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: "User not found",
       });
     }
 
+    // ------------------------------------
+    // 🎨 CLEAN CLEAN RESPONSE
+    // ------------------------------------
+    const formatted = {
+      id: updatedUser._id,
+      fullName: updatedUser.fullName,
+      email: updatedUser.email,
+      mobile: updatedUser.mobile,
+      gender: updatedUser.gender,
+      status:
+        updatedUser.adminApprovel.charAt(0).toUpperCase() +
+        updatedUser.adminApprovel.slice(1),
+      location: updatedUser.currentCity || updatedUser.city,
+      lastActive: updatedUser.lastLoginAt,
+    };
+
     res.status(200).json({
       success: true,
-      message: 'User updated successfully',
-      data: updatedUser,
+      message: "User updated successfully",
+      data: formatted,
     });
+
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Error updating user',
+      message: "Error updating user",
       error: error.message,
     });
   }
 };
+
 
 
 
@@ -507,92 +843,100 @@ export const updateUserById = async (req, res) => {
 
 export const getFilteredManageUsers = async (req, res) => {
   try {
-    const {
-      search = '',
-      status = '',
-      gender = '',
-      sortField = '',
-      sortOrder = 'asc',
+    let {
+      search = "",
+      status = "",
+      gender = "",
+      sortField = "",
+      sortOrder = "asc",
       page = 1,
       limit = 5,
     } = req.query;
 
     const filter = {};
 
-    // 1. Improved Search Logic:
-    // This allows searching by partial name or partial _id (last 5 digits)
-    if (search) {
-      // First, check if the search term could be a partial ID (last 5 digits)
-      // This is a rough check; for exact ID matching, the frontend would need to send the full ID
-      const isPotentialIdSearch = /^[a-fA-F0-9]{5}$/.test(search); // Checks if it's 5 hex characters
+    // -----------------------------------------
+    // 🔍 SEARCH (name, mobile, email, id fragment)
+    // -----------------------------------------
+    if (search.trim()) {
+      const s = search.trim();
 
-      if (isPotentialIdSearch) {
-        // If it looks like an ID fragment, try to match using $regex
-        // Note: This won't efficiently use an index if not at the start of the string
-        filter._id = { $regex: search, $options: 'i' };
+      // partial ObjectId search (last 5–6 chars)
+      const isIdFragment = /^[a-fA-F0-9]{4,6}$/.test(s);
+
+      if (isIdFragment) {
+        filter._id = { $regex: s, $options: "i" };
       } else {
-        // Otherwise, search by name (case-insensitive)
         filter.$or = [
-          { id: { $regex: search, $options: 'i' } },
-          { fullName: { $regex: search, $options: 'i' } },
-          { lastName: { $regex: search, $options: 'i' } },
+          { fullName: { $regex: s, $options: "i" } },
+          { lastName: { $regex: s, $options: "i" } },
+          { email: { $regex: s, $options: "i" } },
+          { mobile: { $regex: s, $options: "i" } }
         ];
       }
     }
 
-    // 2. Case-Insensitive Status Filter
-    if (status) {
-      filter.adminApprovel = { $regex: status, $options: 'i' }; // Make status filter case-insensitive
-    }
+    // -----------------------------------------
+    // 🟡 FILTERS
+    // -----------------------------------------
+    if (status) filter.adminApprovel = new RegExp(status, "i");
+    if (gender) filter.gender = new RegExp(gender, "i");
 
-    // 3. Case-Insensitive Gender Filter
-    // Ensure the `gender` field in your `RegisterModel` stores values that match 'Male', 'Female', 'Others'
-    // or adjust this regex to match what's stored (e.g., 'male' should match 'Male')
-    if (gender) {
-      filter.gender = { $regex: gender, $options: 'i' }; // Make gender filter case-insensitive
-    }
+    // -----------------------------------------
+    // 🔽 SORTING
+    // -----------------------------------------
+    const sort = {};
+    const validSort = ["name", "joined", "status", "gender", "lastActive"];
 
-    const sortOptions = {};
-
-    // Apply sorting if field given, else default to createdAt (newest first)
-    if (sortField) {
-      sortOptions[sortField] = sortOrder === 'asc' ? 1 : -1;
+    if (validSort.includes(sortField)) {
+      if (sortField === "name") sort.fullName = sortOrder === "asc" ? 1 : -1;
+      else if (sortField === "joined") sort.createdAt = sortOrder === "asc" ? 1 : -1;
+      else if (sortField === "status") sort.adminApprovel = sortOrder === "asc" ? 1 : -1;
+      else if (sortField === "gender") sort.gender = sortOrder === "asc" ? 1 : -1;
+      else if (sortField === "lastActive") sort.updatedAt = sortOrder === "asc" ? 1 : -1;
     } else {
-      sortOptions.createdAt = -1;
+      sort.createdAt = -1; // default
     }
 
-    const skip = (Number(page) - 1) * Number(limit);
+    // -----------------------------------------
+    // 📌 PAGINATION
+    // -----------------------------------------
+    page = Number(page);
+    limit = Number(limit);
+    const skip = (page - 1) * limit;
 
     const [users, total] = await Promise.all([
-      RegisterModel.find(filter)
-        .sort(sortOptions)
-        .skip(skip)
-        .limit(Number(limit))
-        .lean(),
-      RegisterModel.countDocuments(filter),
+      RegisterModel.find(filter).sort(sort).skip(skip).limit(limit).lean(),
+      RegisterModel.countDocuments(filter)
     ]);
 
+    // -----------------------------------------
+    // 🎨 FORMAT OUTPUT
+    // -----------------------------------------
     const formattedUsers = users.map((user) => ({
-      id: user.id,
-      name: `${user.fullName || ''} ${user.lastName || ''}`.trim(),
-      gender: user.gender, // Ensure this `user.gender` value is 'Male', 'Female', or 'Others' as per your data
-      location: user.currentCity || user.city || '',
+      id: user.id || "N/A",
+      name:
+        user.fullName ||
+        `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
+        "N/A",
+      gender: user.gender || "",
+      location: user.currentCity || user.city || "",
       joined: user.createdAt
-        ? new Date(user.createdAt).toLocaleDateString('en-IN', {
-            day: '2-digit',
-            month: 'short',
-            year: 'numeric',
+        ? new Date(user.createdAt).toLocaleDateString("en-IN", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
           })
-        : '',
-      verified: user.isMobileVerified,
+        : "",
+      verified: user.isMobileVerified || false,
       lastActive: user.updatedAt
-        ? new Date(user.updatedAt).toLocaleDateString('en-IN', {
-            day: '2-digit',
-            month: 'short',
-            year: 'numeric',
+        ? new Date(user.updatedAt).toLocaleDateString("en-IN", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
           })
-        : '',
-      status: capitalize(user.adminApprovel),
+        : "",
+      status: capitalizeStatus(user.adminApprovel),
     }));
 
     res.status(200).json({
@@ -601,10 +945,19 @@ export const getFilteredManageUsers = async (req, res) => {
       totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
-    console.error('Error fetching users:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error("Error fetching users:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
+
+// -------------------------------------------
+// 🔧 Helper: Capitalize Status
+// -------------------------------------------
+const capitalizeStatus = (status) => {
+  if (!status) return "Pending";
+  return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+};
+
 
 const capitalize = (str) => {
   if (!str) return '';
@@ -709,6 +1062,136 @@ console.log(paginated[0])
   }
 };
 
+export const getReportedContent = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      search = '',
+      status = 'all',
+      gender = '',
+    } = req.query;
+
+    const skip = (page - 1) * limit;
+
+    // Base filter
+    const matchQuery = {};
+
+    // Status filter
+    if (status !== "all") {
+      matchQuery.status = new RegExp(`^${status}$`, "i");
+    }
+
+    // MongoDB aggregation pipeline
+    const pipeline = [
+      { $match: matchQuery },
+
+      // Reporter user
+      {
+        $lookup: {
+          from: "registermodels",
+          localField: "reporter",
+          foreignField: "_id",
+          as: "reporter",
+        },
+      },
+      { $unwind: "$reporter" },
+
+      // Reported user
+      {
+        $lookup: {
+          from: "registermodels",
+          localField: "reportedUser",
+          foreignField: "_id",
+          as: "reportedUser",
+        },
+      },
+      { $unwind: "$reportedUser" }
+    ];
+
+    // Gender filter
+    if (gender) {
+      pipeline.push({
+        $match: {
+          "reportedUser.gender": new RegExp(gender, "i")
+        }
+      });
+    }
+
+    // Search filter
+    if (search) {
+      const s = search.toLowerCase();
+      pipeline.push({
+        $match: {
+          $or: [
+            { "reporter.fullName": { $regex: s, $options: "i" } },
+            { "reportedUser.fullName": { $regex: s, $options: "i" } },
+            { "reporter.id": { $regex: s, $options: "i" } },
+            { "reportedUser.id": { $regex: s, $options: "i" } }
+          ]
+        }
+      });
+    }
+
+    // Sorting and pagination
+    pipeline.push(
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: Number(limit) }
+    );
+
+    // Count total after filters
+    const countPipeline = [...pipeline];
+    countPipeline.push({ $count: "total" });
+
+    const [reports, totalArr] = await Promise.all([
+      ReportModel.aggregate(pipeline),
+      ReportModel.aggregate(countPipeline)
+    ]);
+
+    const total = totalArr[0]?.total || 0;
+
+    // Format Response
+    const formattedReports = reports.map(r => ({
+      _id: r._id,
+      reason: r.reason,
+      status: r.status,
+      reportDate: r.createdAt,
+
+      reportedUser: {
+        id: r.reportedUser.id,
+        name: r.reportedUser.fullName,
+        gender: r.reportedUser.gender,
+        avatar: r.reportedUser.profileImage,
+      },
+
+      reporterUser: {
+        id: r.reporter.id,
+        name: r.reporter.fullName,
+        gender: r.reporter.gender,
+        avatar: r.reporter.profileImage,
+      }
+    }));
+
+    res.status(200).json({
+      success: true,
+      reports: formattedReports,
+      pagination: {
+        currentPage: Number(page),
+        totalPages: Math.ceil(total / limit),
+        totalReports: total
+      }
+    });
+
+  } catch (error) {
+    console.error("Error fetching reports:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message
+    });
+  }
+};
 
 
  
@@ -748,17 +1231,61 @@ export const blockReportedUser = async (req, res) => {
 // GET all users
 export const getAllUsers = async (req, res) => {
   try {
-    const users = await RegisterModel.find().sort({ createdAt: -1 });
+    const {
+      page = 1,
+      limit = 10,
+      search = "",
+      gender,
+      status,
+    } = req.query;
+
+    const query = {};
+
+    // 🔍 Search by userId, firstName, lastName, email
+    if (search) {
+      query.$or = [
+        { userId: { $regex: search, $options: "i" } },
+        { firstName: { $regex: search, $options: "i" } },
+        { lastName: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    // 🧍‍♂️ Filter by gender
+    if (gender) {
+      query.gender = gender;
+    }
+
+    // 🟢🟡🔴 Filter by verification status
+    if (status) {
+      query.verificationStatus = status; // status = 'approved' | 'pending' | 'rejected'
+    }
+
+    // Pagination values
+    const skip = (page - 1) * limit;
+
+    const users = await RegisterModel.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(Number(limit));
+
+    const totalUsers = await RegisterModel.countDocuments(query);
 
     res.status(200).json({
       success: true,
-      data: users
+      data: users,
+      pagination: {
+        total: totalUsers,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(totalUsers / limit),
+      },
     });
   } catch (error) {
-    console.error('Error fetching users:', error.message);
+    console.error("Error fetching users:", error.message);
     res.status(500).json({
       success: false,
-      message: 'Server Error'
+      message: "Server Error",
     });
   }
 };
@@ -768,8 +1295,13 @@ export const updateUserStatus = async (req, res) => {
   const { id } = req.params;
   const { adminApprovel } = req.body;
 
-  if (!['approved', 'pending', 'reject'].includes(adminApprovel)) {
-    return res.status(400).json({ message: 'Invalid status value' });
+  // Validation
+  const allowedStatus = ['approved', 'pending', 'reject'];
+  if (!allowedStatus.includes(adminApprovel)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid status value. Allowed: approved, pending, reject'
+    });
   }
 
   try {
@@ -780,15 +1312,27 @@ export const updateUserStatus = async (req, res) => {
     );
 
     if (!updatedUser) {
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
     }
 
-    res.status(200).json({ message: 'Status updated successfully', user: updatedUser });
+    res.status(200).json({
+      success: true,
+      message: 'User verification status updated',
+      user: updatedUser
+    });
+
   } catch (error) {
     console.error('Error updating user status:', error.message);
-    res.status(500).json({ message: 'Server Error' });
+    res.status(500).json({
+      success: false,
+      message: 'Server Error'
+    });
   }
 };
+
 
 
 

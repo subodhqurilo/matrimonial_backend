@@ -283,30 +283,52 @@ export const registerDetails = async (req, res) => {
     const adhaarFront = req.files?.adhaarCardFrontImage?.[0]?.path;
     const adhaarBack = req.files?.adhaarCardBackImage?.[0]?.path;
 
-    // Fix: React Native sometimes sends ["Unmarried"]
+    // Convert string values from Postman into Boolean
+    const toBoolean = (val) => {
+      if (val === "true" || val === true || val === "Yes") return true;
+      if (val === "false" || val === false || val === "No") return false;
+      return val;
+    };
+
+    // Fix array issues from React Native
     if (Array.isArray(req.body.maritalStatus)) {
       req.body.maritalStatus = req.body.maritalStatus[0];
     }
 
-    // Fetch old user data so we don’t wipe old images
+    // Convert required Boolean fields
+    const booleanFields = [
+      "willingToMarryOtherCaste",
+      "isChildrenLivingWithYou",
+      "anyDisability",
+      "ownHouse",
+      "ownCar",
+      "openToPets",
+      "casteNoBar"
+    ];
+
+    booleanFields.forEach((field) => {
+      if (req.body[field] !== undefined) {
+        req.body[field] = toBoolean(req.body[field]);
+      }
+    });
+
+    // Fetch old user
     const user = await RegisterModel.findById(userId);
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
+    // Build update object
     const updateData = {
       ...req.body,
+      profileImage: profileImage || user.profileImage,
+      adhaarCard: {
+        frontImage: adhaarFront || user.adhaarCard?.frontImage || null,
+        backImage: adhaarBack || user.adhaarCard?.backImage || null,
+      }
     };
 
-    // Keep old profile image if new one not uploaded
-    updateData.profileImage = profileImage || user.profileImage;
-
-    // Keep old Aadhar if not uploaded
-    updateData.adhaarCard = {
-      frontImage: adhaarFront || user.adhaarCard?.frontImage || null,
-      backImage: adhaarBack || user.adhaarCard?.backImage || null,
-    };
-
+    // Save updated user
     const updatedUser = await RegisterModel.findByIdAndUpdate(
       userId,
       { $set: updateData },
@@ -321,9 +343,14 @@ export const registerDetails = async (req, res) => {
 
   } catch (error) {
     console.error("RegisterDetails Error:", error);
-    res.status(500).json({ success: false, message: "Server error", error: error.message });
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
   }
 };
+
 
 
 

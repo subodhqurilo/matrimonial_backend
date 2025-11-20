@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 const registerSchema = new mongoose.Schema({
   firstName: { type: String },
   lastName: { type: String },
+  MiddleName :{ type: String},
   mobile: { type: String, unique: true, sparse: true },
 email: { type: String,  },
 id: {

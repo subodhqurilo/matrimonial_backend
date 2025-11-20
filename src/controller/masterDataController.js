@@ -14,44 +14,48 @@ import EmployedInModel from '../modal/registerFormModal.js/EmployedInModel.js';
 import DesignationModel from '../modal/registerFormModal.js/DesignationModel.js';
 import StateModel from '../modal/registerFormModal.js/StateModel.js';
 
+
+/**************** GENERIC CRUD HANDLER MAKER ****************/
 const generateHandlers = (Model) => ({
+
+  // ➕ Create / Add
   add: async (req, res) => {
     try {
       const { value, state } = req.body;
 
-      // Case-insensitive check for duplicate
-      const query = {
-        value: { $regex: `^${value}$`, $options: 'i' },
-      };
+      if (!value || value.trim() === "")
+        return res.status(400).json({ message: "Value is required" });
 
-      // If model is City, match both value and state
-      if (Model.modelName === 'City') {
-        query.state = state;
+      // Duplicate check (case-insensitive)
+      const query = { value: { $regex: `^${value}$`, $options: "i" } };
+
+      // City special case: include state
+      if (Model.modelName === "City") query.state = state;
+
+      const exist = await Model.findOne(query);
+      if (exist) {
+        return res.status(400).json({ message: "This value already exists." });
       }
 
-      const existing = await Model.findOne(query);
+      const doc = await Model.create(req.body);
+      res.status(201).json(doc);
 
-      if (existing) {
-        return res.status(400).json({ message: 'This value already exists.' });
-      }
-
-      const item = new Model(req.body);
-      await item.save();
-      res.status(201).json(item);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   },
 
+  // 📌 Get all
   get: async (req, res) => {
     try {
-      const items = await Model.find();
-      res.status(200).json(items);
+      const docs = await Model.find();
+      res.status(200).json(docs);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   },
 
+  // ✏ Update
   update: async (req, res) => {
     try {
       const { id } = req.params;
@@ -62,18 +66,22 @@ const generateHandlers = (Model) => ({
     }
   },
 
+  // ❌ Delete
   delete: async (req, res) => {
     try {
       const { id } = req.params;
       await Model.findByIdAndDelete(id);
-      res.status(200).json({ message: 'Deleted successfully' });
+      res.status(200).json({ message: "Deleted successfully" });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   },
+
 });
 
 
+
+/**************** GET ALL FIELDS FOR UI PAGE ****************/
 export const getAllField = async (req, res) => {
   try {
     const [
@@ -81,34 +89,66 @@ export const getAllField = async (req, res) => {
       maritalStatus, motherTongue, familyStatus, state, city,
       education, employedIn, designation
     ] = await Promise.all([
-      ProfileForModel.find({}),
-      ReligionModel.find({}),
-      CommunitiesModel.find({}),
-      DietModel.find({}),
-      ColorModel.find({}),
-      CasteModel.find({}),
-      MaritalStatusModel.find({}),
-      MotherTongueModel.find({}),
-      FamilyStatusModel.find({}),
-      StateModel.find({}),
-      CityModel.find({}),
-      EducationModel.find({}),
-      EmployedInModel.find({}),
-      DesignationModel.find({})
+      ProfileForModel.find(),
+      ReligionModel.find(),
+      CommunitiesModel.find(),
+      DietModel.find(),
+      ColorModel.find(),
+      CasteModel.find(),
+      MaritalStatusModel.find(),
+      MotherTongueModel.find(),
+      FamilyStatusModel.find(),
+      StateModel.find(),
+      CityModel.find(),
+      EducationModel.find(),
+      EmployedInModel.find(),
+      DesignationModel.find(),
     ]);
 
     res.status(200).json({
-      profileFor, religion, communities, diet, color, caste,
-      maritalStatus, motherTongue, familyStatus, state, city,
-      education, employedIn, designation
+      profileFor,
+      religion,
+      communities,
+      diet,
+      color,
+      caste,
+      maritalStatus,
+      motherTongue,
+      familyStatus,
+      state,
+      city,
+      education,
+      employedIn,
+      designation
     });
+
   } catch (error) {
-    console.error('Error fetching master fields:', error.message);
-    res.status(500).json({ message: 'Server Error' });
+    console.error("Error fetching master fields:", error.message);
+    res.status(500).json({ message: "Server Error" });
   }
 };
 
-// Export handlers
+
+
+/**************** GET CITIES BY STATE ****************/
+export const getCitiesByState = async (req, res) => {
+  try {
+    const { state } = req.query;
+
+    if (!state)
+      return res.status(400).json({ message: "State is required" });
+
+    const cities = await CityModel.find({ state });
+    res.status(200).json(cities);
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+
+/**************** EXPORT CRUD HANDLERS ****************/
 export const profileFor = generateHandlers(ProfileForModel);
 export const religion = generateHandlers(ReligionModel);
 export const caste = generateHandlers(CasteModel);
@@ -123,14 +163,3 @@ export const city = generateHandlers(CityModel);
 export const education = generateHandlers(EducationModel);
 export const employedIn = generateHandlers(EmployedInModel);
 export const designation = generateHandlers(DesignationModel);
-
-export const getCitiesByState = async (req, res) => {
-  try {
-    const { state } = req.query;
-    console.log(state)
-    const cities = await CityModel.find({ state });
-    res.status(200).json(cities);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};

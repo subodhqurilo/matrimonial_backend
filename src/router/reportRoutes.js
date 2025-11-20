@@ -1,23 +1,32 @@
 import express from 'express';
-import { createReport, getAllReports } from '../controller/reportController.js';
+import {
+  createReport,
+  getAllReportsAnalize,
+  getSingleReport 
+} from '../controller/reportController.js';
+
 import { authenticateUser } from '../middlewares/authMiddleware.js';
 import upload from '../middlewares/multer.js';
 
 const reportRouter = express.Router();
 
-// Create Report
 reportRouter.post(
   '/create',
   authenticateUser,
-  upload.array('image', 5),   // <— use "image" field (standard)
+  upload.array('image', 5),
   createReport
 );
 
-// Get all Reports (admin only)
 reportRouter.get(
   '/list',
-  authenticateUser,           // or authenticateAdmin
-  getAllReports
+  authenticateUser,
+  getAllReportsAnalize
 );
+reportRouter.get(
+  '/view/:id',
+  authenticateUser,   // or remove if you want public view
+  getSingleReport
+);
+
 
 export default reportRouter;
