@@ -1314,10 +1314,24 @@ export const updateReportStatus = async (req, res) => {
     const { reportId } = req.params;
     let { status } = req.body; // "approved" or "rejected"
 
-    // Convert to lowercase to match enum
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        message: "Status is required.",
+      });
+    }
+
     status = status.toLowerCase();
 
-    // Validate ID
+    // Validate status
+    if (!["approved", "rejected"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status. Use 'approved' or 'rejected'.",
+      });
+    }
+
+    // Validate report ID
     if (!mongoose.Types.ObjectId.isValid(reportId)) {
       return res.status(400).json({
         success: false,
@@ -1336,21 +1350,22 @@ export const updateReportStatus = async (req, res) => {
 
     let updatedUser = null;
 
-    // APPROVED → block user
+    // APPROVED => BLOCK the user
     if (status === "approved") {
       updatedUser = await RegisterModel.findByIdAndUpdate(
         report.reportedUser,
-        { adminApprovel: "reject" },
+        { adminApprovel: "blocked" },
         { new: true }
       );
     }
 
-    // Validate status
-    if (!["approved", "rejected"].includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid status. Use 'approved' or 'rejected'."
-      });
+    // REJECTED => UNBLOCK / APPROVE the user
+    if (status === "rejected") {
+      updatedUser = await RegisterModel.findByIdAndUpdate(
+        report.reportedUser,
+        { adminApprovel: "approved" },
+        { new: true }
+      );
     }
 
     // Update report status
@@ -1361,10 +1376,10 @@ export const updateReportStatus = async (req, res) => {
       success: true,
       message:
         status === "approved"
-          ? "Report approved & user blocked"
-          : "Report rejected",
+          ? "Report approved & user blocked."
+          : "Report rejected & user approved.",
       report,
-      blockedUser: updatedUser,
+      user: updatedUser,
     });
 
   } catch (err) {
@@ -1376,6 +1391,7 @@ export const updateReportStatus = async (req, res) => {
     });
   }
 };
+
 
 
 
