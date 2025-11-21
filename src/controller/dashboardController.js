@@ -1312,7 +1312,10 @@ export const getReportedContent = async (req, res) => {
 export const updateReportStatus = async (req, res) => {
   try {
     const { reportId } = req.params;
-    const { status } = req.body; // "Approved" or "Rejected"
+    let { status } = req.body; // "approved" or "rejected"
+
+    // Convert to lowercase to match enum
+    status = status.toLowerCase();
 
     // Validate ID
     if (!mongoose.Types.ObjectId.isValid(reportId)) {
@@ -1333,10 +1336,8 @@ export const updateReportStatus = async (req, res) => {
 
     let updatedUser = null;
 
-    // -----------------------------
-    // ✔ If report is APPROVED → block the user
-    // -----------------------------
-    if (status === "Approved") {
+    // APPROVED → block user
+    if (status === "approved") {
       updatedUser = await RegisterModel.findByIdAndUpdate(
         report.reportedUser,
         { adminApprovel: "reject" },
@@ -1344,13 +1345,11 @@ export const updateReportStatus = async (req, res) => {
       );
     }
 
-    // -----------------------------
-    // ✔ If report is REJECTED → do not block user
-    // -----------------------------
-    if (status !== "Approved" && status !== "Rejected") {
+    // Validate status
+    if (!["approved", "rejected"].includes(status)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid status. Use 'Approved' or 'Rejected'."
+        message: "Invalid status. Use 'approved' or 'rejected'."
       });
     }
 
@@ -1361,7 +1360,7 @@ export const updateReportStatus = async (req, res) => {
     return res.status(200).json({
       success: true,
       message:
-        status === "Approved"
+        status === "approved"
           ? "Report approved & user blocked"
           : "Report rejected",
       report,
@@ -1377,6 +1376,7 @@ export const updateReportStatus = async (req, res) => {
     });
   }
 };
+
 
 
 
