@@ -983,33 +983,22 @@ export const getAllReportsAnalize = async (req, res) => {
 
     page = Number(page);
     limit = Number(limit);
-
     const skip = (page - 1) * limit;
 
-    // -----------------------------
-    // 🔍 Main Query Object
-    // -----------------------------
-    const query = {};
+    const matchStage = {};
 
-    // 1️⃣ Status Filter
+    // Status Filter
     if (status !== "all") {
-      query.status = new RegExp(`^${status}$`, "i");
-    }
-
-    // 2️⃣ Gender Filter for reported user
-    if (gender) {
-      query["reportedUser.gender"] = new RegExp(gender, "i");
+      matchStage.status = { $regex: new RegExp(`^${status}$`, "i") };
     }
 
     // -----------------------------
-    // 3️⃣ Build Aggregation Pipeline
+    // 🔥 MAIN PIPELINE
     // -----------------------------
-
     const pipeline = [
-      // Match based on status
-      { $match: query },
+      { $match: matchStage },
 
-      // Lookup reporter details
+      // Reporter lookup
       {
         $lookup: {
           from: "registers",
@@ -1020,7 +1009,7 @@ export const getAllReportsAnalize = async (req, res) => {
       },
       { $unwind: "$reporter" },
 
-      // Lookup reported user details
+      // Reported User lookup
       {
         $lookup: {
           from: "registers",
@@ -1030,99 +1019,104 @@ export const getAllReportsAnalize = async (req, res) => {
         },
       },
       { $unwind: "$reportedUser" },
-
-      // Search filter
-      ...(search
-        ? [
-            {
-              $match: {
-                $or: [
-                  { "reporter.fullName": { $regex: search, $options: "i" } },
-                  { "reportedUser.fullName": { $regex: search, $options: "i" } },
-                ],
-              },
-            },
-          ]
-        : []),
-
-      // Sort by latest
-      { $sort: { createdAt: -1 } },
-
-      // Pagination
-      { $skip: skip },
-      { $limit: limit },
-
-      // Final fields
-      {
-        $project: {
-          title: 1,
-          description: 1,
-          status: 1,
-          image: 1,
-          createdAt: 1,
-          reporter: {
-            id: "$reporter._id",
-            name: "$reporter.fullName",
-            email: "$reporter.email",
-            gender: "$reporter.gender",
-            avatar: "$reporter.profileImage",
-          },
-          reportedUser: {
-            id: "$reportedUser._id",
-            name: "$reportedUser.fullName",
-            email: "$reportedUser.email",
-            gender: "$reportedUser.gender",
-            avatar: "$reportedUser.profileImage",
-          },
-        },
-      },
     ];
 
-    // Fetch paginated data
+    // -----------------------------
+    // 🔍 Gender Filter
+    // -----------------------------
+    if (gender) {
+      pipeline.push({
+        $match: {
+          "reportedUser.gender": { $regex: new RegExp(gender, "i") },
+        },
+      });
+    }
+
+    // -----------------------------
+    // 🔍 Search Filter  
+    // supports: name, id, reason, title
+    // -----------------------------
+    if (search.trim() !== "") {
+      const searchRegex = new RegExp(search, "i");
+
+      pipeline.push({
+        $match: {
+          $or: [
+            { "reporter.firstName": searchRegex },
+            { "reporter.lastName": searchRegex },
+            { "reportedUser.firstName": searchRegex },
+            { "reportedUser.lastName": searchRegex },
+            { "reporter.id": searchRegex },
+            { "reportedUser.id": searchRegex },
+            { title: searchRegex },
+            { reason: searchRegex },
+          ],
+        },
+      });
+    }
+
+    // -----------------------------
+    // Sorting → newest first
+    // -----------------------------
+    pipeline.push({ $sort: { createdAt: -1 } });
+
+    // -----------------------------
+    // Pagination
+    // -----------------------------
+    const countPipeline = [...pipeline, { $count: "total" }];
+
+    pipeline.push({ $skip: skip });
+    pipeline.push({ $limit: limit });
+
+    // -----------------------------
+    // Format Output
+    // -----------------------------
+    pipeline.push({
+      $project: {
+        _id: 1,
+        title: 1,
+        description: 1,
+        reason: 1,
+        status: 1,
+        image: 1,
+        createdAt: 1,
+
+        reporter: {
+          userId: "$reporter.id",
+          fullName: {
+            $concat: [
+              "$reporter.firstName",
+              " ",
+              { $ifNull: ["$reporter.lastName", ""] }
+            ]
+          },
+          profileImage: "$reporter.profileImage",
+          gender: "$reporter.gender",
+          email: "$reporter.email",
+        },
+
+        reportedUser: {
+          userId: "$reportedUser.id",
+          fullName: {
+            $concat: [
+              "$reportedUser.firstName",
+              " ",
+              { $ifNull: ["$reportedUser.lastName", ""] }
+            ]
+          },
+          profileImage: "$reportedUser.profileImage",
+          gender: "$reportedUser.gender",
+          email: "$reportedUser.email",
+          adminApprovel: "$reportedUser.adminApprovel",
+        },
+      },
+    });
+
+    // Execute
     const reports = await ReportModel.aggregate(pipeline);
 
-    // Fetch total count
-    const totalCountPipeline = [
-      { $match: query },
-
-      {
-        $lookup: {
-          from: "registers",
-          localField: "reporter",
-          foreignField: "_id",
-          as: "reporter",
-        },
-      },
-      { $unwind: "$reporter" },
-
-      {
-        $lookup: {
-          from: "registers",
-          localField: "reportedUser",
-          foreignField: "_id",
-          as: "reportedUser",
-        },
-      },
-      { $unwind: "$reportedUser" },
-
-      ...(search
-        ? [
-            {
-              $match: {
-                $or: [
-                  { "reporter.fullName": { $regex: search, $options: "i" } },
-                  { "reportedUser.fullName": { $regex: search, $options: "i" } },
-                ],
-              },
-            },
-          ]
-        : []),
-
-      { $count: "total" },
-    ];
-
-    const totalResult = await ReportModel.aggregate(totalCountPipeline);
-    const total = totalResult[0]?.total || 0;
+    const countDocs = await ReportModel.aggregate(countPipeline);
+    const total = countDocs[0]?.total || 0;
 
     res.status(200).json({
       success: true,
@@ -1132,132 +1126,172 @@ export const getAllReportsAnalize = async (req, res) => {
       currentPage: page,
     });
   } catch (error) {
-    console.error("Error fetching reports:", error);
-    res
-      .status(500)
-      .json({ message: "Server Error", error: error.message });
+    console.error("ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
   }
 };
 
 
+
 export const getReportedContent = async (req, res) => {
   try {
-    const {
+    let {
       page = 1,
       limit = 10,
-      search = '',
-      status = 'all',
-      gender = '',
+      search = "",
+      status = "all",
+      gender = "",
     } = req.query;
 
+    page = Number(page);
+    limit = Number(limit);
     const skip = (page - 1) * limit;
 
-    // Base filter
-    const matchQuery = {};
+    const matchStage = {};
 
-    // Status filter
+    // Status Filter
     if (status !== "all") {
-      matchQuery.status = new RegExp(`^${status}$`, "i");
+      matchStage.status = { $regex: new RegExp(`^${status}$`, "i") };
     }
 
-    // MongoDB aggregation pipeline
+    // -----------------------------
+    // 🔥 MAIN PIPELINE
+    // -----------------------------
     const pipeline = [
-      { $match: matchQuery },
+      { $match: matchStage },
 
-      // Reporter user
+      // Reporter lookup
       {
         $lookup: {
-          from: "registermodels",
+          from: "registers",
           localField: "reporter",
           foreignField: "_id",
           as: "reporter",
-        },
+        }
       },
       { $unwind: "$reporter" },
 
-      // Reported user
+      // Reported User lookup
       {
         $lookup: {
-          from: "registermodels",
+          from: "registers",
           localField: "reportedUser",
           foreignField: "_id",
           as: "reportedUser",
-        },
+        }
       },
-      { $unwind: "$reportedUser" }
+      { $unwind: "$reportedUser" },
     ];
 
-    // Gender filter
+    // Gender filter (after lookup)
     if (gender) {
       pipeline.push({
         $match: {
-          "reportedUser.gender": new RegExp(gender, "i")
+          "reportedUser.gender": { $regex: new RegExp(gender, "i") }
         }
       });
     }
 
-    // Search filter
-    if (search) {
-      const s = search.toLowerCase();
+    // -----------------------------
+    // 🔍 Search Filter
+    // -----------------------------
+    if (search.trim() !== "") {
+      const s = new RegExp(search, "i");
+
       pipeline.push({
         $match: {
           $or: [
-            { "reporter.fullName": { $regex: s, $options: "i" } },
-            { "reportedUser.fullName": { $regex: s, $options: "i" } },
-            { "reporter.id": { $regex: s, $options: "i" } },
-            { "reportedUser.id": { $regex: s, $options: "i" } }
+            { "reporter.firstName": s },
+            { "reporter.lastName": s },
+            { "reportedUser.firstName": s },
+            { "reportedUser.lastName": s },
+            { "reporter.id": s },
+            { "reportedUser.id": s },
+            { reason: s },
+            { title: s }
           ]
         }
       });
     }
 
-    // Sorting and pagination
-    pipeline.push(
-      { $sort: { createdAt: -1 } },
+    // -----------------------------
+    // Sorting
+    // -----------------------------
+    pipeline.push({ $sort: { createdAt: -1 } });
+
+    // -----------------------------
+    // Pagination
+    // -----------------------------
+    const paginatedPipeline = [
+      ...pipeline,
       { $skip: skip },
-      { $limit: Number(limit) }
-    );
+      { $limit: limit },
 
-    // Count total after filters
-    const countPipeline = [...pipeline];
-    countPipeline.push({ $count: "total" });
+      // Format output
+      {
+        $project: {
+          _id: 1,
+          reason: 1,
+          status: 1,
+          createdAt: 1,
 
+          reportedUser: {
+            id: "$reportedUser.id",
+            gender: "$reportedUser.gender",
+            avatar: "$reportedUser.profileImage",
+            name: {
+              $concat: [
+                "$reportedUser.firstName",
+                " ",
+                { $ifNull: ["$reportedUser.lastName", ""] }
+              ]
+            }
+          },
+
+          reporterUser: {
+            id: "$reporter.id",
+            gender: "$reporter.gender",
+            avatar: "$reporter.profileImage",
+            name: {
+              $concat: [
+                "$reporter.firstName",
+                " ",
+                { $ifNull: ["$reporter.lastName", ""] }
+              ]
+            }
+          }
+        }
+      }
+    ];
+
+    // -----------------------------
+    // TOTAL COUNT PIPELINE
+    // (must not include skip/limit)
+    // -----------------------------
+    const countPipeline = [
+      ...pipeline,
+      { $count: "total" }
+    ];
+
+    // Execute in parallel
     const [reports, totalArr] = await Promise.all([
-      ReportModel.aggregate(pipeline),
-      ReportModel.aggregate(countPipeline)
+      ReportModel.aggregate(paginatedPipeline),
+      ReportModel.aggregate(countPipeline),
     ]);
 
     const total = totalArr[0]?.total || 0;
 
-    // Format Response
-    const formattedReports = reports.map(r => ({
-      _id: r._id,
-      reason: r.reason,
-      status: r.status,
-      reportDate: r.createdAt,
-
-      reportedUser: {
-        id: r.reportedUser.id,
-        name: r.reportedUser.fullName,
-        gender: r.reportedUser.gender,
-        avatar: r.reportedUser.profileImage,
-      },
-
-      reporterUser: {
-        id: r.reporter.id,
-        name: r.reporter.fullName,
-        gender: r.reporter.gender,
-        avatar: r.reporter.profileImage,
-      }
-    }));
-
     res.status(200).json({
       success: true,
-      reports: formattedReports,
+      reports,
       pagination: {
-        currentPage: Number(page),
+        currentPage: page,
         totalPages: Math.ceil(total / limit),
-        totalReports: total
+        totalReports: total,
       }
     });
 
@@ -1266,10 +1300,11 @@ export const getReportedContent = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Server Error",
-      error: error.message
+      error: error.message,
     });
   }
 };
+
 
 
  
