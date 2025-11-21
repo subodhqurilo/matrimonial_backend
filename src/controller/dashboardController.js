@@ -1323,7 +1323,6 @@ export const updateReportStatus = async (req, res) => {
 
     status = status.toLowerCase();
 
-    // Validate status
     if (!["approved", "rejected"].includes(status)) {
       return res.status(400).json({
         success: false,
@@ -1331,7 +1330,6 @@ export const updateReportStatus = async (req, res) => {
       });
     }
 
-    // Validate report ID
     if (!mongoose.Types.ObjectId.isValid(reportId)) {
       return res.status(400).json({
         success: false,
@@ -1339,7 +1337,6 @@ export const updateReportStatus = async (req, res) => {
       });
     }
 
-    // Fetch report
     const report = await ReportModel.findById(reportId);
     if (!report) {
       return res.status(404).json({
@@ -1349,48 +1346,62 @@ export const updateReportStatus = async (req, res) => {
     }
 
     let updatedUser = null;
+    let finalReportStatus = null;
 
-    // APPROVED => BLOCK the user
+    // 🔥 APPROVED → BLOCK USER + BLOCK REPORT
     if (status === "approved") {
+
+      // USER BLOCK
       updatedUser = await RegisterModel.findByIdAndUpdate(
         report.reportedUser,
         { adminApprovel: "blocked" },
         { new: true }
       );
+
+      // REPORT STATUS ALSO BLOCKED
+      finalReportStatus = "blocked";
     }
 
-    // REJECTED => UNBLOCK / APPROVE the user
+    // 🔥 REJECTED → APPROVE USER + REPORT ALSO APPROVED
     if (status === "rejected") {
+
+      // USER APPROVED
       updatedUser = await RegisterModel.findByIdAndUpdate(
         report.reportedUser,
         { adminApprovel: "approved" },
         { new: true }
       );
+
+      // REPORT STATUS ALSO APPROVED
+      finalReportStatus = "approved";
     }
 
-    // Update report status
-    report.status = status;
+    // Save final report status
+    report.status = finalReportStatus;
     await report.save();
 
     return res.status(200).json({
       success: true,
       message:
-        status === "approved"
-          ? "Report approved & user blocked."
-          : "Report rejected & user approved.",
+        finalReportStatus === "blocked"
+          ? "Report approved — User BLOCKED"
+          : "Report rejected — User APPROVED",
       report,
       user: updatedUser,
+      userStatus: updatedUser?.adminApprovel,
     });
 
   } catch (err) {
     console.error("Error in updateReportStatus:", err);
     return res.status(500).json({
       success: false,
-      message: "Server error while updating report",
+      message: "Server error while updating report.",
       error: err.message,
     });
   }
 };
+
+
 
 
 
