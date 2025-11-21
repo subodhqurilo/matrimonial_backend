@@ -105,7 +105,6 @@ export const getSingleReport = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // 🔍 Validate Mongo ID
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
@@ -113,28 +112,90 @@ export const getSingleReport = async (req, res) => {
       });
     }
 
-    // 🔍 Fetch report with population
-    const report = await ReportModel.findById(id)
-      .populate("reporter", "id fullName email profileImage gender")
-      .populate("reportedUser", "id fullName email profileImage gender adminApprovel");
+    const pipeline = [
+      { $match: { _id: new mongoose.Types.ObjectId(id) } },
 
-    // Report not found
-    if (!report) {
+      // Reporter
+      {
+        $lookup: {
+          from: "registers",
+          localField: "reporter",
+          foreignField: "_id",
+          as: "reporter",
+        },
+      },
+      { $unwind: "$reporter" },
+
+      // Reported user
+      {
+        $lookup: {
+          from: "registers",
+          localField: "reportedUser",
+          foreignField: "_id",
+          as: "reportedUser",
+        },
+      },
+      { $unwind: "$reportedUser" },
+
+      {
+        $project: {
+          _id: 1,
+          title: 1,
+          description: 1,
+          reason: 1,
+          status: 1,
+          image: 1,
+          createdAt: 1,
+
+          reporter: {
+            id: "$reporter.id",
+            email: "$reporter.email",
+            gender: "$reporter.gender",
+            avatar: "$reporter.profileImage",
+            fullName: {
+              $concat: [
+                "$reporter.firstName",
+                " ",
+                { $ifNull: ["$reporter.lastName", ""] }
+              ]
+            }
+          },
+
+          reportedUser: {
+            id: "$reportedUser.id",
+            email: "$reportedUser.email",
+            gender: "$reportedUser.gender",
+            avatar: "$reportedUser.profileImage",
+            adminApprovel: "$reportedUser.adminApprovel",
+            fullName: {
+              $concat: [
+                "$reportedUser.firstName",
+                " ",
+                { $ifNull: ["$reportedUser.lastName", ""] }
+              ]
+            }
+          }
+        }
+      }
+    ];
+
+    const result = await ReportModel.aggregate(pipeline);
+
+    if (!result.length) {
       return res.status(404).json({
         success: false,
         message: "Report not found",
       });
     }
 
-    // Success
     return res.status(200).json({
       success: true,
-      data: report,
+      data: result[0],
     });
 
   } catch (err) {
     console.error("[View Single Report Error]", err);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Error fetching report details",
       error: err.message,
