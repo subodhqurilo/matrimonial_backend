@@ -1309,10 +1309,10 @@ export const getReportedContent = async (req, res) => {
 
  
 
-export const blockReportedUser = async (req, res) => {
+export const updateReportStatus = async (req, res) => {
   try {
     const { reportId } = req.params;
-    const { status } = req.body;
+    const { status } = req.body; // "Approved" or "Rejected"
 
     // Validate ID
     if (!mongoose.Types.ObjectId.isValid(reportId)) {
@@ -1331,36 +1331,48 @@ export const blockReportedUser = async (req, res) => {
       });
     }
 
-    // Block the reported user
-    const updatedUser = await RegisterModel.findByIdAndUpdate(
-      report.reportedUser,
-      { adminApprovel: "reject" },
-      { new: true }
-    );
+    let updatedUser = null;
 
-    if (!updatedUser) {
-      return res.status(404).json({
+    // -----------------------------
+    // ✔ If report is APPROVED → block the user
+    // -----------------------------
+    if (status === "Approved") {
+      updatedUser = await RegisterModel.findByIdAndUpdate(
+        report.reportedUser,
+        { adminApprovel: "reject" },
+        { new: true }
+      );
+    }
+
+    // -----------------------------
+    // ✔ If report is REJECTED → do not block user
+    // -----------------------------
+    if (status !== "Approved" && status !== "Rejected") {
+      return res.status(400).json({
         success: false,
-        message: "Reported user not found",
+        message: "Invalid status. Use 'Approved' or 'Rejected'."
       });
     }
 
     // Update report status
-    report.status = status || "Blocked";
+    report.status = status;
     await report.save();
 
     return res.status(200).json({
       success: true,
-      message: "User blocked successfully & report updated",
+      message:
+        status === "Approved"
+          ? "Report approved & user blocked"
+          : "Report rejected",
       report,
       blockedUser: updatedUser,
     });
 
   } catch (err) {
-    console.error("Error in blockReportedUser:", err);
+    console.error("Error in updateReportStatus:", err);
     return res.status(500).json({
       success: false,
-      message: "Server error while blocking user",
+      message: "Server error while updating report",
       error: err.message,
     });
   }

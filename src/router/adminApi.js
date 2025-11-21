@@ -1,5 +1,5 @@
 import express  from "express";
-import { blockReportedUser, getAllManageUserData, getAllReportsAnalize, getAllUsers,getReportedContent, getFilteredManageUsers, getMatchesPerMonth, getProfileOverview, getSearchToMatchStats, getSignupGender, getSingleUserById, getStatsSummary, getUserManage, getUsers, getUserSignupTrends, getWeeklyReports, updateUserById, updateUserStatus, verifyAadhaar } from "../controller/dashboardController.js";
+import { blockReportedUser,updateReportStatus, getAllManageUserData, getAllReportsAnalize, getAllUsers,getReportedContent, getFilteredManageUsers, getMatchesPerMonth, getProfileOverview, getSearchToMatchStats, getSignupGender, getSingleUserById, getStatsSummary, getUserManage, getUsers, getUserSignupTrends, getWeeklyReports, updateUserById, updateUserStatus, verifyAadhaar } from "../controller/dashboardController.js";
 
 
 const adminRoute = express.Router();
@@ -21,7 +21,7 @@ adminRoute.get('/user-manage-get', getFilteredManageUsers);
 adminRoute.get('/report', getReportedContent );
 
 adminRoute.get('/report-analize', getAllReportsAnalize);
-adminRoute.put('/report/block/:reportId', blockReportedUser);
+adminRoute.put("/report/status/:reportId", updateReportStatus);
 
 adminRoute.get('/user-verify', getAllUsers);
 adminRoute.patch('/user-verify/:id/status', updateUserStatus);
