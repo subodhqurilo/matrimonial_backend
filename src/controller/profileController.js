@@ -83,57 +83,71 @@ export const getUserPublicProfileById = async (req, res) => {
 
 export const getUserFormattedProfile = async (req, res) => {
   try {
-    const id = req.userId
-    console.log(id)
-    const user = await RegisterModel.findOne({ _id:id });
-    if (!user) return res.status(404).json({ message: 'User not found' });
+    const id = req.userId;
+    console.log("Logged-in User:", id);
 
-    // const partnerPreference = await PartnerPreferenceModel.findOne({ userId: user._id });
+    const user = await RegisterModel.findOne({ _id: id });
 
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
 
- 
+    // ---------- Helper Function ----------
+    const calculateAge = (dob) => {
+      const birthDate = new Date(dob);
+      const diff = Date.now() - birthDate.getTime();
+      return Math.floor(diff / (365.25 * 24 * 60 * 60 * 1000));
+    };
+
+    // ---------- Final Formatted Response ----------
     const formattedData = {
-        profileImage:{
-            profileImage:user.profileImage
-        },
-        verifyAadhaar:user.adhaarCard.isVerified,
+      profileImage: {
+        profileImage: user.profileImage || "",
+      },
+
+      verifyAadhaar: user.adhaarCard?.isVerified ?? false,
+
       basicInfo: {
-        postedBy: user.profileFor, 
+        postedBy: user.profileFor,
         firstName: user.firstName,
-        middleName: user.middleName ?user.middleName : "None",
+        middleName: user.middleName ? user.middleName : "None",
         lastName: user.lastName,
-        age: user.dateOfBirth ? calculateAge(user.dateOfBirth) : 'N/A',
+        age: user.dateOfBirth ? calculateAge(user.dateOfBirth) : "N/A",
         maritalStatus: user.maritalStatus,
-        anyDisability: user.anyDisability ? 'Yes' : 'None',
-        weight: user.weight || 'None',
-        complexion: user.complexion || 'None',
-        healthInformation: user.healthInformation || 'None',
+        anyDisability: user.anyDisability ? "Yes" : "None",
+        weight: user.weight || "None",
+        complexion: user.complexion || "None",
+        healthInformation: user.healthInformation || "None",
         height: user.height,
       },
+
       religionDetails: {
         religion: user.religion,
         motherTongue: user.motherTongue,
         community: user.community,
-        casteNoBar: user.casteNoBar ? 'Yes' : 'No',
-        gothra: user.gothra || 'Not Specified',
+        casteNoBar: user.casteNoBar ? "Yes" : "No",
+        gothra: user.gothra || "Not Specified",
       },
+
       familyDetails: {
         familyBackground: user.familyType,
         fatherOccupation: user.fatherOccupation,
         motherOccupation: user.motherOccupation,
         brother: user.brother,
         sister: user.sister,
-        familyBasedOutOf: user.familyBasedOutOf || 'Not Specified',
+        familyBasedOutOf: user.familyBasedOutOf || "Not Specified",
       },
+
       astroDetails: {
         manglik: user.manglik,
-        dateOfBirth: user.dateOfBirth?.toISOString().split('T')[0],
+        dateOfBirth: user.dateOfBirth
+          ? user.dateOfBirth.toISOString().split("T")[0]
+          : "",
         timeOfBirth: user.timeOfBirth,
         cityOfBirth: user.cityOfBirth,
-        // zodiacSign: getZodiacSign(user.dateOfBirth), 
-        zodiacSign: user.zodiacSign?user.zodiacSign:'N/A',
-        // horoscope: user.horoscope,
+        zodiacSign: user.zodiacSign ? user.zodiacSign : "N/A",
       },
+
       educationDetails: {
         highestDegree: user.highestEducation,
         postGraduation: user.postGraduation,
@@ -141,19 +155,21 @@ export const getUserFormattedProfile = async (req, res) => {
         school: user.school,
         schoolStream: user.schoolStream,
       },
+
       careerDetails: {
         employedIn: user.employedIn,
         occupation: user.designation,
         company: user.company,
         annualIncome: user.annualIncome,
       },
+
       lifestyleHobbies: {
         diet: user.diet,
-        ownHouse: user.ownHouse ? 'Yes' : 'No',
-        ownCar: user.ownCar ? 'Yes' : 'No',
-        smoking: user.smoking ?'Yes' :'No',
+        ownHouse: user.ownHouse ? "Yes" : "No",
+        ownCar: user.ownCar ? "Yes" : "No",
+        smoking: user.smoking ? "Yes" : "No",
         drinking: user.drinking,
-        openToPets: user.openToPets ? 'Yes' : 'No',
+        openToPets: user.openToPets ? "Yes" : "No",
         foodICook: user.foodICook,
         hobbies: user.hobbies,
         interests: user.interests,
@@ -164,16 +180,18 @@ export const getUserFormattedProfile = async (req, res) => {
         tvShows: user.tvShows,
         vacationDestination: user.vacationDestination,
       },
-    //   adhaarCard: user.adhaarCard || {},
-    //   partnerPreference: partnerPreference || {},
+
       aboutMe: user.aboutYourself,
     };
 
-    res.status(200).json({ success: true, data: formattedData });
+    return res.status(200).json({ success: true, data: formattedData });
+
   } catch (error) {
-    res.status(500).json({ message: 'Server Error', error: error.message });
+    console.error("Error in getUserFormattedProfile:", error);
+    res.status(500).json({ success: false, message: "Server Error", error: error.message });
   }
 };
+
 
  
 export const updateUserFormattedProfile = async (req, res) => {
