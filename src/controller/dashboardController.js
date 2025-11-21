@@ -1314,26 +1314,55 @@ export const blockReportedUser = async (req, res) => {
     const { reportId } = req.params;
     const { status } = req.body;
 
+    // Validate ID
     if (!mongoose.Types.ObjectId.isValid(reportId)) {
-      return res.status(400).json({ message: 'Invalid report ID' });
+      return res.status(400).json({
+        success: false,
+        message: "Invalid report ID",
+      });
     }
 
+    // Fetch report
     const report = await ReportModel.findById(reportId);
     if (!report) {
-      return res.status(404).json({ message: 'Report not found' });
+      return res.status(404).json({
+        success: false,
+        message: "Report not found",
+      });
     }
 
-    await RegisterModel.findByIdAndUpdate(report.reportedUser, {
-      adminApprovel: 'reject',
-    });
+    // Block the reported user
+    const updatedUser = await RegisterModel.findByIdAndUpdate(
+      report.reportedUser,
+      { adminApprovel: "reject" },
+      { new: true }
+    );
 
-    report.status = status || 'Blocked';
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        message: "Reported user not found",
+      });
+    }
+
+    // Update report status
+    report.status = status || "Blocked";
     await report.save();
 
-    res.status(200).json({ success: true, message: 'User blocked and report updated' });
+    return res.status(200).json({
+      success: true,
+      message: "User blocked successfully & report updated",
+      report,
+      blockedUser: updatedUser,
+    });
+
   } catch (err) {
-    console.error('Error in blockReportedUser:', err);
-    res.status(500).json({ success: false, message: 'Error blocking user', error: err.message });
+    console.error("Error in blockReportedUser:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while blocking user",
+      error: err.message,
+    });
   }
 };
 
