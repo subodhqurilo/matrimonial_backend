@@ -243,6 +243,7 @@ export const getMatchedUsersByPreference = async (req, res) => {
       return res.status(401).json({ success: false, message: "Unauthorized user" });
     }
 
+    // Get preference
     const pref = await PartnerPreferenceModel.findOne({ userId });
     if (!pref) {
       return res.status(200).json({
@@ -252,57 +253,52 @@ export const getMatchedUsersByPreference = async (req, res) => {
       });
     }
 
-    // Fetch all other users first
-    const allUsers = await RegisterModel.find({ _id: { $ne: userId } })
-      .select("-password -mobileOTP");
+    // Fetch current user for exclusion lists
+    const currentUser = await RegisterModel.findById(userId).select(
+      "likedUsers sentRequests skippedUsers"
+    );
+
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // Build excluded user list (permanent remove)
+    const excludedUsers = [
+      userId,                        // yourself
+      ...currentUser.likedUsers,     // liked
+      ...currentUser.sentRequests,   // connection sent
+      ...currentUser.skippedUsers,   // skipped
+    ];
+
+    // Fetch all users except excluded
+    const allUsers = await RegisterModel.find({
+      _id: { $nin: excludedUsers }
+    }).select("-password -mobileOTP");
 
     const matched = [];
 
     allUsers.forEach((user) => {
-      let score = 0; // ⭐ match score (more = better)
+      let score = 0;
 
-      // Gender Match
+      // 🌟 Matching Logic (same as your logic)
       if (!pref.gender || user.gender === pref.gender) score++;
-
-      // Religion Match
       if (!pref.religion || user.religion === pref.religion) score++;
-
-      // Caste Match
       if (!pref.caste || user.caste === pref.caste) score++;
-
-      // Community Match
       if (!pref.community || user.community === pref.community) score++;
-
-      // Gotra Match
       if (!pref.gotra || user.gotra === pref.gotra) score++;
-
-      // City Match
       if (!pref.city || user.currentCity === pref.city) score++;
-
-      // State Match
       if (!pref.state || user.currentState === pref.state) score++;
-
-      // Education Match
       if (!pref.highestEducation || user.highestEducation === pref.highestEducation) score++;
-
-      // Designation Match
       if (!pref.designation || user.designation === pref.designation) score++;
-
-      // Annual Income Match
       if (!pref.income || user.annualIncome === pref.income) score++;
-
-      // Marital Status Match
       if (!pref.maritalStatus || user.maritalStatus === pref.maritalStatus) score++;
 
-      // Height match (soft contain check)
       if (!pref.minheight || user.height >= pref.minheight) score++;
       if (!pref.maxheight || user.height <= pref.maxheight) score++;
 
-      // Weight match
       if (!pref.minWeight || user.weight >= pref.minWeight) score++;
       if (!pref.maxWeight || user.weight <= pref.maxWeight) score++;
 
-      // AGE match
       if (pref.minAge || pref.maxAge) {
         const age = getAge(user.dateOfBirth);
 
@@ -310,14 +306,13 @@ export const getMatchedUsersByPreference = async (req, res) => {
         if (!pref.maxAge || age <= pref.maxAge) score++;
       }
 
-      // ⭐ Push user with score
       matched.push({
         ...user.toObject(),
-        matchScore: score, // ⭐ this tells how much matched
+        matchScore: score,
       });
     });
 
-    // Sort by highest matching score
+    // Sort high to low score
     matched.sort((a, b) => b.matchScore - a.matchScore);
 
     return res.status(200).json({
@@ -328,9 +323,14 @@ export const getMatchedUsersByPreference = async (req, res) => {
 
   } catch (error) {
     console.error("[MATCH ERROR]", error);
-    return res.status(500).json({ success: false, message: "Server error", error: error.message });
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
   }
 };
+
 
 // Helper function
 function getAge(dob) {

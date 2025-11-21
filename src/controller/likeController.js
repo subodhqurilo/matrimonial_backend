@@ -541,16 +541,37 @@ export const getAllUsers = async (req, res) => {
       });
     }
 
-    // Fetch all users except the logged-in user
-    const users = await RegisterModel.find(
-      { _id: { $ne: userId } }  // exclude yourself
-    )
-      .select("-password -mobileOTP") // hide sensitive fields
-      .sort({ createdAt: -1 });       // newest first
+    // Logged-in user's data (for filtering)
+    const currentUser = await RegisterModel.findById(userId).select(
+      "likedUsers sentRequests skippedUsers"
+    );
+
+    if (!currentUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Combine all removed user IDs
+    const removeList = [
+      ...currentUser.likedUsers,
+      ...currentUser.sentRequests,
+      ...currentUser.skippedUsers,
+    ];
+
+    // 🔥 Fetch users excluding removed IDs and self
+    const users = await RegisterModel.find({
+      _id: {
+        $nin: [...removeList, userId], // EXCLUDE
+      },
+    })
+      .select("-password -mobileOTP")
+      .sort({ createdAt: -1 });
 
     return res.status(200).json({
       success: true,
-      message: "All users fetched successfully",
+      message: "Users fetched successfully",
       count: users.length,
       users,
     });
@@ -564,6 +585,7 @@ export const getAllUsers = async (req, res) => {
     });
   }
 };
+
 
 // They Shortlisted Me
 export const getTheyShortlisted = async (req, res) => {

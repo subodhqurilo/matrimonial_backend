@@ -403,13 +403,40 @@ export const getUsersWithProfileImage = async (req, res) => {
   try {
     const currentUserId = req.userId;
 
+    if (!currentUserId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized: userId missing",
+      });
+    }
+
+    // Fetch current user skipped / liked / sentRequests
+    const currentUser = await RegisterModel.findById(currentUserId).select(
+      "likedUsers sentRequests skippedUsers"
+    );
+
+    if (!currentUser) {
+      return res.status(404).json({
+        success: false,
+        message: "Current user not found",
+      });
+    }
+
+    // Combine all exclusion lists
+    const excludedUsers = [
+      currentUserId,               // yourself
+      ...currentUser.likedUsers,   // whom you liked
+      ...currentUser.sentRequests, // whom you sent request
+      ...currentUser.skippedUsers, // whom you skipped
+    ];
+
     const photo = await RegisterModel.find({
-      _id: { $ne: currentUserId },
-      profileImage: { $exists: true, $ne: '' }
+      _id: { $nin: excludedUsers },            // exclude permanently
+      profileImage: { $exists: true, $ne: "" } // must have image
     }).select(
-      'id firstName lastName dateOfBirth height religion caste employedIn ' + 
-      'annualIncome highestEducation currentCity city state currentState ' +
-      'motherTongue gender profileImage updatedAt createdAt designation'
+      `id firstName lastName dateOfBirth height religion caste employedIn 
+      annualIncome highestEducation currentCity city state currentState 
+      motherTongue gender profileImage updatedAt createdAt designation`
     );
 
     res.status(200).json({
@@ -417,32 +444,61 @@ export const getUsersWithProfileImage = async (req, res) => {
       count: photo.length,
       photo,
     });
+
   } catch (error) {
-      console.error('Error fetching users with profile images:', error),
+    console.error("Error fetching users with profile images:", error);
 
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch users with profile images',
+      message: "Failed to fetch users with profile images",
       error: error.message,
     });
   }
 };
 
+
 export const getNewlyRegisteredUsers = async (req, res) => {
   try {
-    const currentUserId = req.userId; // User ID from token
+    const currentUserId = req.userId;
+
+    if (!currentUserId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized: userId missing",
+      });
+    }
+
+    // Fetch current user for exclusion lists
+    const currentUser = await RegisterModel.findById(currentUserId).select(
+      "likedUsers sentRequests skippedUsers"
+    );
+
+    if (!currentUser) {
+      return res.status(404).json({
+        success: false,
+        message: "Current user not found",
+      });
+    }
+
+    // 🔥 Build excluded user list
+    const excludedUsers = [
+      ...currentUser.likedUsers,
+      ...currentUser.sentRequests,
+      ...currentUser.skippedUsers,
+      currentUserId, // Exclude yourself
+    ];
 
     const fiveDaysAgo = new Date();
     fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
 
     const users = await RegisterModel.find({
-      _id: { $ne: currentUserId }, // ❌ exclude self
-      createdAt: { $gte: fiveDaysAgo }, // ✅ registered in last 5 days
-      profileImage: { $exists: true, $ne: '' } // ✅ profile image is present
+      _id: { $nin: excludedUsers },          // EXCLUDE removed users
+      createdAt: { $gte: fiveDaysAgo },      // last 5 days
+      profileImage: { $exists: true, $ne: "" } // only profiles with photos
     }).select(
-      'id firstName lastName dateOfBirth height religion caste employedIn ' +
-      'annualIncome highestEducation currentCity city state currentState ' +
-      'motherTongue gender profileImage updatedAt createdAt designation'
+      `id firstName lastName dateOfBirth height religion caste employedIn 
+      annualIncome highestEducation currentCity city state currentState 
+      motherTongue gender profileImage updatedAt createdAt designation`
     );
 
     res.status(200).json({
@@ -454,8 +510,9 @@ export const getNewlyRegisteredUsers = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch newly registered users',
+      message: "Failed to fetch newly registered users",
       error: error.message,
     });
   }
 };
+

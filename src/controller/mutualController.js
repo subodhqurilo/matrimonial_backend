@@ -12,7 +12,10 @@ export const getMutualMatches = async (req, res) => {
       });
     }
 
-    const currentUser = await RegisterModel.findById(userId);
+    const currentUser = await RegisterModel.findById(userId).select(
+      "hobbies interests favoriteMusic sports cuisine movies tvShows vacationDestination gender likedUsers sentRequests skippedUsers"
+    );
+
     if (!currentUser) {
       return res.status(404).json({
         success: false,
@@ -20,7 +23,15 @@ export const getMutualMatches = async (req, res) => {
       });
     }
 
-    // Extract arrays safely (ensure arrays)
+    // ⛔ EXCLUDE LIST
+    const excludeUsers = [
+      ...currentUser.likedUsers,
+      ...currentUser.sentRequests,
+      ...currentUser.skippedUsers,
+      userId, // exclude yourself
+    ];
+
+    // Extract arrays safely
     const {
       hobbies = [],
       interests = [],
@@ -30,7 +41,7 @@ export const getMutualMatches = async (req, res) => {
       movies = [],
       tvShows = [],
       vacationDestination = [],
-      gender
+      gender,
     } = currentUser;
 
     // Build dynamic filters (skip empty arrays)
@@ -45,14 +56,15 @@ export const getMutualMatches = async (req, res) => {
     if (tvShows.length) interestFilters.push({ tvShows: { $in: tvShows } });
     if (vacationDestination.length) interestFilters.push({ vacationDestination: { $in: vacationDestination } });
 
+    // 🔥 MAIN QUERY with EXCLUSION
     const mutualMatches = await RegisterModel.find({
-      _id: { $ne: userId },
+      _id: { $nin: excludeUsers },
 
       // Opposite gender
       gender: gender === "Male" ? "Female" : "Male",
 
-      // Only apply OR filter if at least one matching category exists
-      ...(interestFilters.length > 0 && { $or: interestFilters })
+      // OR filter if available
+      ...(interestFilters.length > 0 && { $or: interestFilters }),
     }).select(`
       _id firstName lastName dateOfBirth height religion caste company
       annualIncome highestEducation currentCity state motherTongue
@@ -75,4 +87,5 @@ export const getMutualMatches = async (req, res) => {
     });
   }
 };
+
 
