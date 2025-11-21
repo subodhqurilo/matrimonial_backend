@@ -156,25 +156,6 @@ blockedUsers: {
   default: [],
 },
 
-likedUsers: {
-  type: [mongoose.Schema.Types.ObjectId],
-  ref: "Register",
-  default: [],
-},
-
-sentRequests: {
-  type: [mongoose.Schema.Types.ObjectId],
-  ref: "Register",
-  default: [],
-},
-
-skippedUsers: {
-  type: [mongoose.Schema.Types.ObjectId],
-  ref: "Register",
-  default: [],
-},
-
-
 }, { timestamps: true });
 
 const RegisterModel = mongoose.model('Register', registerSchema);
