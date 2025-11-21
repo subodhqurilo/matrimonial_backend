@@ -973,94 +973,172 @@ const capitalize = (str) => {
 
 export const getAllReportsAnalize = async (req, res) => {
   try {
-    const {
+    let {
       page = 1,
       limit = 10,
-      search = '',
-      status = 'all',
-      gender = '',
+      search = "",
+      status = "all",
+      gender = "",
     } = req.query;
 
+    page = Number(page);
+    limit = Number(limit);
+
     const skip = (page - 1) * limit;
+
+    // -----------------------------
+    // 🔍 Main Query Object
+    // -----------------------------
     const query = {};
 
-    // Filter by status
-    if (status !== 'all') {
-      query.status = new RegExp(`^${status}$`, 'i');
+    // 1️⃣ Status Filter
+    if (status !== "all") {
+      query.status = new RegExp(`^${status}$`, "i");
     }
 
-    // Filter by gender of reported user
+    // 2️⃣ Gender Filter for reported user
     if (gender) {
-      const users = await RegisterModel.find(
-        { gender: new RegExp(gender, 'i') },
-        '_id'
-      );
-      const reportedUserIds = users.map((u) => u._id);
-      query.reportedUser = { $in: reportedUserIds };
+      query["reportedUser.gender"] = new RegExp(gender, "i");
     }
 
-    // Fetch and populate reports
-    const reports = await ReportModel.find(query)
-      .populate({
-        path: 'reporter',
-        select: 'fullName profileImage email _id gender id',
-        model: RegisterModel,
-      })
-      .populate({
-        path: 'reportedUser',
-        select: 'fullName profileImage email _id gender id',
-        model: RegisterModel,
-      })
-      .sort({ createdAt: -1 });
+    // -----------------------------
+    // 3️⃣ Build Aggregation Pipeline
+    // -----------------------------
 
-    // Apply search filter after population
-    const filtered = reports.filter((r) => {
-      const reportedUserName = r.reportedUser?.fullName?.toLowerCase() || '';
-      const reporterName = r.reporter?.fullName?.toLowerCase() || '';
-      return (
-        reportedUserName.includes(search.toLowerCase()) ||
-        reporterName.includes(search.toLowerCase())
-      );
-    });
+    const pipeline = [
+      // Match based on status
+      { $match: query },
 
-    // Paginate filtered results
-    const paginated = filtered.slice(skip, skip + Number(limit));
-console.log(paginated[0])
-    const formattedReports = paginated.map((r) => ({
-      
-      _id: r._id,
-      title: r.title,
-      status: r.status,
-      reportDate: r.createdAt,
-      description: r.description || '',
-      reporter: {
-        id: r.reporter?.id,
-        name: r.reporter?.fullName || 'N/A',
-        avatar: r.reporter?.profileImage || '/avatar-default.png',
-        email: r.reporter?.email || 'N/A',
-        gender: r.reporter?.gender || 'N/A',
+      // Lookup reporter details
+      {
+        $lookup: {
+          from: "registers",
+          localField: "reporter",
+          foreignField: "_id",
+          as: "reporter",
+        },
       },
-      reportedUser: {
-        id: r.reportedUser?.id,
-        name: r.reportedUser?.fullName || 'N/A',
-        avatar: r.reportedUser?.profileImage || '/avatar-default.png',
-        email: r.reportedUser?.email || 'N/A',
-        gender: r.reportedUser?.gender || 'N/A',
+      { $unwind: "$reporter" },
+
+      // Lookup reported user details
+      {
+        $lookup: {
+          from: "registers",
+          localField: "reportedUser",
+          foreignField: "_id",
+          as: "reportedUser",
+        },
       },
-      image: r.image,
-      createdAt: r.createdAt,
-    }));
+      { $unwind: "$reportedUser" },
+
+      // Search filter
+      ...(search
+        ? [
+            {
+              $match: {
+                $or: [
+                  { "reporter.fullName": { $regex: search, $options: "i" } },
+                  { "reportedUser.fullName": { $regex: search, $options: "i" } },
+                ],
+              },
+            },
+          ]
+        : []),
+
+      // Sort by latest
+      { $sort: { createdAt: -1 } },
+
+      // Pagination
+      { $skip: skip },
+      { $limit: limit },
+
+      // Final fields
+      {
+        $project: {
+          title: 1,
+          description: 1,
+          status: 1,
+          image: 1,
+          createdAt: 1,
+          reporter: {
+            id: "$reporter._id",
+            name: "$reporter.fullName",
+            email: "$reporter.email",
+            gender: "$reporter.gender",
+            avatar: "$reporter.profileImage",
+          },
+          reportedUser: {
+            id: "$reportedUser._id",
+            name: "$reportedUser.fullName",
+            email: "$reportedUser.email",
+            gender: "$reportedUser.gender",
+            avatar: "$reportedUser.profileImage",
+          },
+        },
+      },
+    ];
+
+    // Fetch paginated data
+    const reports = await ReportModel.aggregate(pipeline);
+
+    // Fetch total count
+    const totalCountPipeline = [
+      { $match: query },
+
+      {
+        $lookup: {
+          from: "registers",
+          localField: "reporter",
+          foreignField: "_id",
+          as: "reporter",
+        },
+      },
+      { $unwind: "$reporter" },
+
+      {
+        $lookup: {
+          from: "registers",
+          localField: "reportedUser",
+          foreignField: "_id",
+          as: "reportedUser",
+        },
+      },
+      { $unwind: "$reportedUser" },
+
+      ...(search
+        ? [
+            {
+              $match: {
+                $or: [
+                  { "reporter.fullName": { $regex: search, $options: "i" } },
+                  { "reportedUser.fullName": { $regex: search, $options: "i" } },
+                ],
+              },
+            },
+          ]
+        : []),
+
+      { $count: "total" },
+    ];
+
+    const totalResult = await ReportModel.aggregate(totalCountPipeline);
+    const total = totalResult[0]?.total || 0;
 
     res.status(200).json({
-      reports: formattedReports,
-      totalPages: Math.ceil(filtered.length / limit),
-      currentPage: Number(page),
+      success: true,
+      reports,
+      total,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
     });
   } catch (error) {
-    console.error('Error fetching reports:', error);
-    res.status(500).json({ message: 'Server Error', error: error.message });
+    console.error("Error fetching reports:", error);
+    res
+      .status(500)
+      .json({ message: "Server Error", error: error.message });
   }
 };
+
 
 export const getReportedContent = async (req, res) => {
   try {
