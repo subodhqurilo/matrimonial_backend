@@ -1,3 +1,5 @@
+import mongoose from "mongoose";
+
 import PartnerPreferenceModel from "../modal/PartnerPreferenceModel.js";
 import RegisterModel from "../modal/register.js";
 
@@ -198,6 +200,16 @@ export const updateUserFormattedProfile = async (req, res) => {
   try {
     const userId = req.userId;
 
+    // Validate userId presence
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized: missing userId" });
+    }
+
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, message: "Invalid userId" });
+    }
+
     const {
       basicInfo,
       religionDetails,
@@ -207,142 +219,142 @@ export const updateUserFormattedProfile = async (req, res) => {
       careerDetails,
       lifestyleHobbies,
       aboutMe,
-    } = req.body;
+    } = req.body || {};
 
-    let user = await RegisterModel.findById(userId);
+    const user = await RegisterModel.findById(userId);
+
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
+    // Helper to coerce "Yes"/"No"/"None" inputs to booleans/strings
+    const isYes = (val) => {
+      if (typeof val === "boolean") return val;
+      if (!val && val !== "") return false;
+      return String(val).toLowerCase() === "yes";
+    };
+    const isNone = (val) => val === "None" || val === "None " || val === "Not Specified";
+
     // 1️⃣ BASIC INFO
-    if (basicInfo) {
-      Object.assign(user, {
-        profileFor: basicInfo.postedBy || user.profileFor,
-        firstName: basicInfo.firstName || user.firstName,
-        middleName: basicInfo.middleName === "None" ? "" : basicInfo.middleName,
-        lastName: basicInfo.lastName || user.lastName,
-        maritalStatus: basicInfo.maritalStatus || user.maritalStatus,
-        anyDisability: basicInfo.anyDisability === "Yes",
-        weight: basicInfo.weight === "None" ? "" : basicInfo.weight,
-        complexion: basicInfo.complexion === "None" ? "" : basicInfo.complexion,
-        healthInformation:
-          basicInfo.healthInformation === "None"
-            ? ""
-            : basicInfo.healthInformation,
-        height: basicInfo.height || user.height,
-        dateOfBirth: basicInfo.dateOfBirth
-          ? new Date(basicInfo.dateOfBirth)
-          : user.dateOfBirth,
-        gender: basicInfo.gender || user.gender,
-      });
+    if (basicInfo && typeof basicInfo === "object") {
+      // prefer explicit provided values, else retain existing
+      if (basicInfo.postedBy !== undefined) user.profileFor = basicInfo.postedBy || user.profileFor;
+      if (basicInfo.firstName !== undefined) user.firstName = basicInfo.firstName || user.firstName;
+      if (basicInfo.middleName !== undefined) user.middleName = isNone(basicInfo.middleName) ? "" : (basicInfo.middleName || "");
+      if (basicInfo.lastName !== undefined) user.lastName = basicInfo.lastName || user.lastName;
+      if (basicInfo.maritalStatus !== undefined) user.maritalStatus = basicInfo.maritalStatus || user.maritalStatus;
+      if (basicInfo.anyDisability !== undefined) user.anyDisability = isYes(basicInfo.anyDisability);
+      if (basicInfo.weight !== undefined) user.weight = isNone(basicInfo.weight) ? "" : (basicInfo.weight || user.weight);
+      if (basicInfo.complexion !== undefined) user.complexion = isNone(basicInfo.complexion) ? "" : (basicInfo.complexion || user.complexion);
+      if (basicInfo.healthInformation !== undefined) user.healthInformation = isNone(basicInfo.healthInformation) ? "" : (basicInfo.healthInformation || user.healthInformation);
+      if (basicInfo.height !== undefined) user.height = basicInfo.height || user.height;
+      if (basicInfo.dateOfBirth) {
+        const d = new Date(basicInfo.dateOfBirth);
+        if (!Number.isNaN(d.getTime())) user.dateOfBirth = d;
+      }
+      if (basicInfo.gender !== undefined) user.gender = basicInfo.gender || user.gender;
     }
 
     // 2️⃣ RELIGION DETAILS
-    if (religionDetails) {
-      Object.assign(user, {
-        religion: religionDetails.religion || user.religion,
-        caste: religionDetails.caste || user.caste,
-        community: religionDetails.community || user.community,
-        gothra:
-          religionDetails.gothra === "Not Specified"
-            ? ""
-            : religionDetails.gothra,
-        motherTongue:
-          religionDetails.motherTongue || user.motherTongue,
-        casteNoBar: religionDetails.casteNoBar === "Yes",
-      });
+    if (religionDetails && typeof religionDetails === "object") {
+      if (religionDetails.religion !== undefined) user.religion = religionDetails.religion || user.religion;
+      if (religionDetails.caste !== undefined) user.caste = religionDetails.caste || user.caste;
+      if (religionDetails.community !== undefined) user.community = religionDetails.community || user.community;
+      if (religionDetails.gothra !== undefined) user.gothra = isNone(religionDetails.gothra) ? "" : (religionDetails.gothra || user.gothra);
+      if (religionDetails.motherTongue !== undefined) user.motherTongue = religionDetails.motherTongue || user.motherTongue;
+      if (religionDetails.casteNoBar !== undefined) user.casteNoBar = isYes(religionDetails.casteNoBar);
     }
 
     // 3️⃣ FAMILY DETAILS
-    if (familyDetails) {
-      Object.assign(user, {
-        familyType: familyDetails.familyType || user.familyType,
-        familyStatus: familyDetails.familyStatus || user.familyStatus,
-        fatherOccupation: familyDetails.fatherOccupation || user.fatherOccupation,
-        motherOccupation: familyDetails.motherOccupation || user.motherOccupation,
-        brother: familyDetails.brother ?? user.brother,
-        sister: familyDetails.sister ?? user.sister,
-        state: familyDetails.state || user.state,
-        city: familyDetails.city || user.city,
-      });
+    if (familyDetails && typeof familyDetails === "object") {
+      if (familyDetails.familyType !== undefined) user.familyType = familyDetails.familyType || user.familyType;
+      if (familyDetails.familyStatus !== undefined) user.familyStatus = familyDetails.familyStatus || user.familyStatus;
+      if (familyDetails.fatherOccupation !== undefined) user.fatherOccupation = familyDetails.fatherOccupation || user.fatherOccupation;
+      if (familyDetails.motherOccupation !== undefined) user.motherOccupation = familyDetails.motherOccupation || user.motherOccupation;
+      if (familyDetails.brother !== undefined) user.brother = familyDetails.brother === "" ? user.brother : Number(familyDetails.brother) || familyDetails.brother;
+      if (familyDetails.sister !== undefined) user.sister = familyDetails.sister === "" ? user.sister : Number(familyDetails.sister) || familyDetails.sister;
+      if (familyDetails.state !== undefined) user.state = familyDetails.state || user.state;
+      if (familyDetails.city !== undefined) user.city = familyDetails.city || user.city;
+      if (familyDetails.familyIncome !== undefined) user.familyIncome = familyDetails.familyIncome || user.familyIncome;
     }
 
     // 4️⃣ ASTRO DETAILS
-    if (astroDetails) {
-      Object.assign(user, {
-        manglik: astroDetails.manglik || user.manglik,
-        timeOfBirth: astroDetails.timeOfBirth || user.timeOfBirth,
-        cityOfBirth: astroDetails.cityOfBirth || user.cityOfBirth,
-        dateOfBirth: astroDetails.dateOfBirth
-          ? new Date(astroDetails.dateOfBirth)
-          : user.dateOfBirth,
-      });
+    // IMPORTANT: Only set dateOfBirth from astroDetails if basicInfo did NOT set it
+    if (astroDetails && typeof astroDetails === "object") {
+      if (astroDetails.manglik !== undefined) user.manglik = astroDetails.manglik || user.manglik;
+      if (astroDetails.timeOfBirth !== undefined) user.timeOfBirth = astroDetails.timeOfBirth || user.timeOfBirth;
+      if (astroDetails.cityOfBirth !== undefined) user.cityOfBirth = astroDetails.cityOfBirth || user.cityOfBirth;
+
+      if (astroDetails.dateOfBirth && !basicInfo?.dateOfBirth) {
+        const d = new Date(astroDetails.dateOfBirth);
+        if (!Number.isNaN(d.getTime())) user.dateOfBirth = d;
+      }
     }
 
     // 5️⃣ EDUCATION DETAILS
-    if (educationDetails) {
-      Object.assign(user, {
-        highestEducation:
-          educationDetails.highestEducation || user.highestEducation,
-        postGraduation: educationDetails.postGraduation || user.postGraduation,
-        underGraduation:
-          educationDetails.underGraduation || user.underGraduation,
-        school: educationDetails.school || user.school,
-        schoolStream: educationDetails.schoolStream || user.schoolStream,
-      });
+    if (educationDetails && typeof educationDetails === "object") {
+      if (educationDetails.highestEducation !== undefined) user.highestEducation = educationDetails.highestEducation || user.highestEducation;
+      if (educationDetails.postGraduation !== undefined) user.postGraduation = educationDetails.postGraduation || user.postGraduation;
+      if (educationDetails.underGraduation !== undefined) user.underGraduation = educationDetails.underGraduation || user.underGraduation;
+      if (educationDetails.school !== undefined) user.school = educationDetails.school || user.school;
+      if (educationDetails.schoolStream !== undefined) user.schoolStream = educationDetails.schoolStream || user.schoolStream;
     }
 
     // 6️⃣ CAREER DETAILS
-    if (careerDetails) {
-      Object.assign(user, {
-        employedIn: careerDetails.employedIn || user.employedIn,
-        designation: careerDetails.designation || user.designation,
-        company: careerDetails.company || user.company,
-        annualIncome: careerDetails.annualIncome || user.annualIncome,
-      });
+    if (careerDetails && typeof careerDetails === "object") {
+      if (careerDetails.employedIn !== undefined) user.employedIn = careerDetails.employedIn || user.employedIn;
+      if (careerDetails.designation !== undefined) user.designation = careerDetails.designation || user.designation;
+      if (careerDetails.company !== undefined) user.company = careerDetails.company || user.company;
+      if (careerDetails.annualIncome !== undefined) user.annualIncome = careerDetails.annualIncome || user.annualIncome;
+      if (careerDetails.occupation !== undefined) user.occupation = careerDetails.occupation || user.occupation;
     }
 
     // 7️⃣ LIFESTYLE & HOBBIES
-    if (lifestyleHobbies) {
-      Object.assign(user, {
-        diet: lifestyleHobbies.diet || user.diet,
-        ownHouse: lifestyleHobbies.ownHouse === "Yes",
-        ownCar: lifestyleHobbies.ownCar === "Yes",
-        smoking: lifestyleHobbies.smoking || user.smoking,
-        drinking: lifestyleHobbies.drinking || user.drinking,
-        openToPets: lifestyleHobbies.openToPets === "Yes",
-        foodICook: lifestyleHobbies.foodICook || user.foodICook,
-        hobbies: lifestyleHobbies.hobbies || user.hobbies,
-        interests: lifestyleHobbies.interests || user.interests,
-        favoriteMusic: lifestyleHobbies.favoriteMusic || user.favoriteMusic,
-        sports: lifestyleHobbies.sports || user.sports,
-        cuisine: lifestyleHobbies.cuisine || user.cuisine,
-        movies: lifestyleHobbies.movies || user.movies,
-        tvShows: lifestyleHobbies.tvShows || user.tvShows,
-        vacationDestination:
-          lifestyleHobbies.vacationDestination || user.vacationDestination,
-      });
+    if (lifestyleHobbies && typeof lifestyleHobbies === "object") {
+      if (lifestyleHobbies.diet !== undefined) user.diet = lifestyleHobbies.diet || user.diet;
+      if (lifestyleHobbies.ownHouse !== undefined) user.ownHouse = isYes(lifestyleHobbies.ownHouse);
+      if (lifestyleHobbies.ownCar !== undefined) user.ownCar = isYes(lifestyleHobbies.ownCar);
+      if (lifestyleHobbies.smoking !== undefined) user.smoking = lifestyleHobbies.smoking || user.smoking;
+      if (lifestyleHobbies.drinking !== undefined) user.drinking = lifestyleHobbies.drinking || user.drinking;
+      if (lifestyleHobbies.openToPets !== undefined) user.openToPets = isYes(lifestyleHobbies.openToPets);
+      if (lifestyleHobbies.foodICook !== undefined) user.foodICook = lifestyleHobbies.foodICook || user.foodICook;
+      if (lifestyleHobbies.hobbies !== undefined) user.hobbies = lifestyleHobbies.hobbies || user.hobbies;
+      if (lifestyleHobbies.interests !== undefined) user.interests = lifestyleHobbies.interests || user.interests;
+      if (lifestyleHobbies.favoriteMusic !== undefined) user.favoriteMusic = lifestyleHobbies.favoriteMusic || user.favoriteMusic;
+      if (lifestyleHobbies.sports !== undefined) user.sports = lifestyleHobbies.sports || user.sports;
+      if (lifestyleHobbies.cuisine !== undefined) user.cuisine = lifestyleHobbies.cuisine || user.cuisine;
+      if (lifestyleHobbies.movies !== undefined) user.movies = lifestyleHobbies.movies || user.movies;
+      if (lifestyleHobbies.tvShows !== undefined) user.tvShows = lifestyleHobbies.tvShows || user.tvShows;
+      if (lifestyleHobbies.vacationDestination !== undefined) user.vacationDestination = lifestyleHobbies.vacationDestination || user.vacationDestination;
+      if (lifestyleHobbies.assets !== undefined) user.assets = lifestyleHobbies.assets || user.assets;
+      if (lifestyleHobbies.habits !== undefined) user.habits = lifestyleHobbies.habits || user.habits;
     }
 
     // 8️⃣ ABOUT ME
-    if (aboutMe) {
+    if (aboutMe !== undefined && aboutMe !== null) {
+      // aboutMe can be a string or an object -- store directly
       user.aboutYourself = aboutMe;
     }
 
+    // Final save
     await user.save();
 
-    res.status(200).json({
+    // Strip sensitive fields before returning (if present on your model)
+    const userObj = user.toObject ? user.toObject() : { ...user };
+    delete userObj.password;
+    delete userObj.__v;
+
+    return res.status(200).json({
       success: true,
       message: "Profile updated successfully",
-      user,
+      user: userObj,
     });
-
   } catch (error) {
     console.error("Update Error:", error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Server Error",
-      error: error.message,
+      error: error.message || String(error),
     });
   }
 };
