@@ -88,38 +88,38 @@ export const getUserFormattedProfile = async (req, res) => {
     const id = req.userId;
     console.log("Logged-in User:", id);
 
-    const user = await RegisterModel.findById(id).lean();
+    const user = await RegisterModel.findOne({ _id: id });
 
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
+    // ---------- Helper Function ----------
     const calculateAge = (dob) => {
       const birthDate = new Date(dob);
       const diff = Date.now() - birthDate.getTime();
       return Math.floor(diff / (365.25 * 24 * 60 * 60 * 1000));
     };
 
-    // ⭐ FULL RAW USER (everything from DB)
-    const rawUser = user;
-
-    // ⭐ FORMATTED USER (clean frontend-friendly)
-    const formatted = {
-      profileImage: user.profileImage || "",
+    // ---------- Final Formatted Response ----------
+    const formattedData = {
+      profileImage: {
+        profileImage: user.profileImage || "",
+      },
 
       verifyAadhaar: user.adhaarCard?.isVerified ?? false,
 
       basicInfo: {
         postedBy: user.profileFor,
         firstName: user.firstName,
-        middleName: user.middleName || "None",
+        middleName: user.middleName ? user.middleName : "None",
         lastName: user.lastName,
         age: user.dateOfBirth ? calculateAge(user.dateOfBirth) : "N/A",
         maritalStatus: user.maritalStatus,
-        anyDisability: user.anyDisability ? "Yes" : "No",
-        weight: user.weight,
-        complexion: user.complexion,
-        healthInformation: user.healthInformation,
+        anyDisability: user.anyDisability ? "Yes" : "None",
+        weight: user.weight || "None",
+        complexion: user.complexion || "None",
+        healthInformation: user.healthInformation || "None",
         height: user.height,
       },
 
@@ -128,7 +128,7 @@ export const getUserFormattedProfile = async (req, res) => {
         motherTongue: user.motherTongue,
         community: user.community,
         casteNoBar: user.casteNoBar ? "Yes" : "No",
-        gothra: user.gothra,
+        gothra: user.gothra || "Not Specified",
       },
 
       familyDetails: {
@@ -137,7 +137,7 @@ export const getUserFormattedProfile = async (req, res) => {
         motherOccupation: user.motherOccupation,
         brother: user.brother,
         sister: user.sister,
-        familyBasedOutOf: user.familyBasedOutOf,
+        familyBasedOutOf: user.familyBasedOutOf || "Not Specified",
       },
 
       astroDetails: {
@@ -147,7 +147,7 @@ export const getUserFormattedProfile = async (req, res) => {
           : "",
         timeOfBirth: user.timeOfBirth,
         cityOfBirth: user.cityOfBirth,
-        zodiacSign: user.zodiacSign,
+        zodiacSign: user.zodiacSign ? user.zodiacSign : "N/A",
       },
 
       educationDetails: {
@@ -170,7 +170,7 @@ export const getUserFormattedProfile = async (req, res) => {
         ownHouse: user.ownHouse ? "Yes" : "No",
         ownCar: user.ownCar ? "Yes" : "No",
         smoking: user.smoking ? "Yes" : "No",
-        drinking: user.drinking ? "Yes" : "No",
+        drinking: user.drinking,
         openToPets: user.openToPets ? "Yes" : "No",
         foodICook: user.foodICook,
         hobbies: user.hobbies,
@@ -186,19 +186,13 @@ export const getUserFormattedProfile = async (req, res) => {
       aboutMe: user.aboutYourself,
     };
 
-    return res.status(200).json({
-      success: true,
-      message: "User profile fetched",
-      rawUser,      // ⭐ SARA DB ka data as-is
-      formatted,    // ⭐ Clean frontend-friendly version
-    });
+    return res.status(200).json({ success: true, data: formattedData });
 
   } catch (error) {
     console.error("Error in getUserFormattedProfile:", error);
     res.status(500).json({ success: false, message: "Server Error", error: error.message });
   }
 };
-
 
 
  
