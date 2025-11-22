@@ -611,7 +611,6 @@ export const getAllManageUserData = async (req, res) => {
     if (search.trim()) {
       const s = search.trim();
 
-      // Only treat as ObjectId if EXACT 24-char hex
       if (/^[0-9a-fA-F]{24}$/.test(s)) {
         query._id = new mongoose.Types.ObjectId(s);
       } else {
@@ -627,7 +626,7 @@ export const getAllManageUserData = async (req, res) => {
     }
 
     // ------------------------------------
-    // 🟡 FILTERS (CASE-INSENSITIVE)
+    // 🟡 FILTERS
     // ------------------------------------
     if (statusFilter.trim()) {
       query.adminApprovel = {
@@ -644,7 +643,7 @@ export const getAllManageUserData = async (req, res) => {
     }
 
     // ------------------------------------
-    // 🔼 SORTING MAP
+    // 🔼 SORTING
     // ------------------------------------
     const sortFields = {
       name: "fullName",
@@ -669,7 +668,7 @@ export const getAllManageUserData = async (req, res) => {
       .collation({ locale: "en", strength: 2 });
 
     // ------------------------------------
-    // 🎨 FORMAT CLEAN RESPONSE
+    // 🎨 FORMAT CLEAN RESPONSE (profileImage added)
     // ------------------------------------
     const formatted = users.map((u, index) => {
       const userId = String(index + 1).padStart(6, "0");
@@ -697,6 +696,10 @@ export const getAllManageUserData = async (req, res) => {
         gender,
         status,
         location: u.currentCity || u.city || "N/A",
+
+        // ⭐ ADD PROFILE IMAGE FIELD HERE
+        profileImage: u.profileImage || null,
+
         joined: moment(u.createdAt).format("DD MMM, YYYY"),
         lastActive: u.lastLoginAt
           ? moment(u.lastLoginAt).format("DD MMM, YYYY")
@@ -722,6 +725,7 @@ export const getAllManageUserData = async (req, res) => {
     });
   }
 };
+
 
 
 
@@ -861,7 +865,6 @@ export const getFilteredManageUsers = async (req, res) => {
     if (search.trim()) {
       const s = search.trim();
 
-      // partial ObjectId search (last 5–6 chars)
       const isIdFragment = /^[a-fA-F0-9]{4,6}$/.test(s);
 
       if (isIdFragment) {
@@ -895,7 +898,7 @@ export const getFilteredManageUsers = async (req, res) => {
       else if (sortField === "gender") sort.gender = sortOrder === "asc" ? 1 : -1;
       else if (sortField === "lastActive") sort.updatedAt = sortOrder === "asc" ? 1 : -1;
     } else {
-      sort.createdAt = -1; // default
+      sort.createdAt = -1;
     }
 
     // -----------------------------------------
@@ -911,7 +914,7 @@ export const getFilteredManageUsers = async (req, res) => {
     ]);
 
     // -----------------------------------------
-    // 🎨 FORMAT OUTPUT
+    // 🎨 FORMAT OUTPUT  (profileImage added)
     // -----------------------------------------
     const formattedUsers = users.map((user) => ({
       id: user.id || "N/A",
@@ -921,6 +924,10 @@ export const getFilteredManageUsers = async (req, res) => {
         "N/A",
       gender: user.gender || "",
       location: user.currentCity || user.city || "",
+      
+      // ⭐ ADD THIS FIELD
+      profileImage: user.profileImage || null,
+
       joined: user.createdAt
         ? new Date(user.createdAt).toLocaleDateString("en-IN", {
             day: "2-digit",
@@ -949,6 +956,7 @@ export const getFilteredManageUsers = async (req, res) => {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
+
 
 // -------------------------------------------
 // 🔧 Helper: Capitalize Status
