@@ -601,12 +601,14 @@ export const getAllManageUserData = async (req, res) => {
       genderFilter = "",
       sortBy = "createdAt",
       sortOrder = "desc",
+      page = 1,             // ⭐ pagination page
+      limit = 5,            // ⭐ 5 data per page
     } = req.query;
 
     const query = {};
 
     // ------------------------------------
-    // 🔍 SAFE SEARCH (NO CAST ERROR)
+    // 🔍 SAFE SEARCH
     // ------------------------------------
     if (search.trim()) {
       const s = search.trim();
@@ -657,21 +659,28 @@ export const getAllManageUserData = async (req, res) => {
 
     const sortKey = sortFields[sortBy] || "createdAt";
     const sortDirection = sortOrder === "asc" ? 1 : -1;
-
     const sort = { [sortKey]: sortDirection };
 
     // ------------------------------------
-    // 📥 FETCH USERS (NO PAGINATION)
+    // 📥 PAGINATION LOGIC
     // ------------------------------------
+    const skip = (page - 1) * limit;
+
+    const totalUsers = await RegisterModel.countDocuments(query);
+
     const users = await RegisterModel.find(query)
       .sort(sort)
+      .skip(skip)          // ⭐ Skip users
+      .limit(Number(limit)) // ⭐ Limit to 5
       .collation({ locale: "en", strength: 2 });
 
     // ------------------------------------
-    // 🎨 FORMAT CLEAN RESPONSE (profileImage added)
+    // 🎨 FORMAT RESPONSE
     // ------------------------------------
     const formatted = users.map((u, index) => {
-      const userId = String(index + 1).padStart(6, "0");
+      const fallbackUserId = String(skip + index + 1).padStart(6, "0");
+
+      const finalId = u.id || `#${fallbackUserId}`;
 
       const name =
         u.fullName ||
@@ -679,8 +688,7 @@ export const getAllManageUserData = async (req, res) => {
         "N/A";
 
       const status = u.adminApprovel
-        ? u.adminApprovel.charAt(0).toUpperCase() +
-          u.adminApprovel.slice(1).toLowerCase()
+        ? u.adminApprovel.charAt(0).toUpperCase() + u.adminApprovel.slice(1).toLowerCase()
         : "Pending";
 
       const gender = u.gender
@@ -688,7 +696,7 @@ export const getAllManageUserData = async (req, res) => {
         : "N/A";
 
       return {
-        id: `#${userId}`,
+        id: finalId,
         mongoId: u._id,
         fullName: name,
         email: u.email || "N/A",
@@ -696,10 +704,7 @@ export const getAllManageUserData = async (req, res) => {
         gender,
         status,
         location: u.currentCity || u.city || "N/A",
-
-        // ⭐ ADD PROFILE IMAGE FIELD HERE
         profileImage: u.profileImage || null,
-
         joined: moment(u.createdAt).format("DD MMM, YYYY"),
         lastActive: u.lastLoginAt
           ? moment(u.lastLoginAt).format("DD MMM, YYYY")
@@ -708,11 +713,13 @@ export const getAllManageUserData = async (req, res) => {
     });
 
     // ------------------------------------
-    // RESPONSE
+    // 📤 RESPONSE
     // ------------------------------------
     res.status(200).json({
       success: true,
-      total: formatted.length,
+      totalUsers,
+      currentPage: Number(page),
+      totalPages: Math.ceil(totalUsers / limit),
       data: formatted,
     });
 
@@ -725,6 +732,7 @@ export const getAllManageUserData = async (req, res) => {
     });
   }
 };
+
 
 
 
@@ -860,15 +868,15 @@ export const getFilteredManageUsers = async (req, res) => {
     const filter = {};
 
     // -----------------------------------------
-    // 🔍 SEARCH (name, mobile, email, id fragment)
+    // 🔍 SEARCH
     // -----------------------------------------
     if (search.trim()) {
       const s = search.trim();
 
-      const isIdFragment = /^[a-fA-F0-9]{4,6}$/.test(s);
+      const isIdFragment = /^#?[0-9]{1,6}$/i.test(s); // 👉 for vmId like #000123
 
       if (isIdFragment) {
-        filter._id = { $regex: s, $options: "i" };
+        filter.id = { $regex: s.replace("#", ""), $options: "i" }; // ⭐ search by VM ID
       } else {
         filter.$or = [
           { fullName: { $regex: s, $options: "i" } },
@@ -914,37 +922,41 @@ export const getFilteredManageUsers = async (req, res) => {
     ]);
 
     // -----------------------------------------
-    // 🎨 FORMAT OUTPUT  (profileImage added)
+    // 🎨 FORMAT OUTPUT
     // -----------------------------------------
-    const formattedUsers = users.map((user) => ({
-      id: user.id || "N/A",
-      name:
-        user.fullName ||
-        `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
-        "N/A",
-      gender: user.gender || "",
-      location: user.currentCity || user.city || "",
-      
-      // ⭐ ADD THIS FIELD
-      profileImage: user.profileImage || null,
+    const formattedUsers = users.map((user, index) => {
+      // 🔥 Fallback if user.id is missing (OLD USERS)
+      const fallbackId = "#" + String(skip + index + 1).padStart(6, "0");
 
-      joined: user.createdAt
-        ? new Date(user.createdAt).toLocaleDateString("en-IN", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-          })
-        : "",
-      verified: user.isMobileVerified || false,
-      lastActive: user.updatedAt
-        ? new Date(user.updatedAt).toLocaleDateString("en-IN", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-          })
-        : "",
-      status: capitalizeStatus(user.adminApprovel),
-    }));
+      return {
+        id: user.id || fallbackId,  // ⭐ ALWAYS RETURN VM ID
+        name:
+          user.fullName ||
+          `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
+          "N/A",
+        gender: user.gender || "",
+        location: user.currentCity || user.city || "",
+        profileImage: user.profileImage || null,
+
+        joined: user.createdAt
+          ? new Date(user.createdAt).toLocaleDateString("en-IN", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+            })
+          : "",
+        verified: user.isMobileVerified || false,
+
+        lastActive: user.updatedAt
+          ? new Date(user.updatedAt).toLocaleDateString("en-IN", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+            })
+          : "",
+        status: capitalizeStatus(user.adminApprovel),
+      };
+    });
 
     res.status(200).json({
       users: formattedUsers,
@@ -956,6 +968,7 @@ export const getFilteredManageUsers = async (req, res) => {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
+
 
 
 // -------------------------------------------
