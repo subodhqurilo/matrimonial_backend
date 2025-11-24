@@ -593,145 +593,124 @@ export const getUserManage = async (req, res) => {
 
 
 
-export const getAllManageUserData = async (req, res) => {
+export const getFilteredManageUsers = async (req, res) => {
   try {
-    const {
+    let {
       search = "",
-      statusFilter = "",
-      genderFilter = "",
-      sortBy = "createdAt",
-      sortOrder = "desc",
-      page = 1,             // ⭐ pagination page
-      limit = 5,            // ⭐ 5 data per page
+      status = "",
+      gender = "",
+      sortField = "",
+      sortOrder = "asc",
+      page = 1,
+      limit = 5,
     } = req.query;
 
-    const query = {};
+    const filter = {};
 
-    // ------------------------------------
-    // 🔍 SAFE SEARCH
-    // ------------------------------------
+    // -----------------------------------------
+    // 🔍 SEARCH (Now supports vm12345, 12345, vm12, etc.)
+    // -----------------------------------------
     if (search.trim()) {
       const s = search.trim();
 
-      if (/^[0-9a-fA-F]{24}$/.test(s)) {
-        query._id = new mongoose.Types.ObjectId(s);
+      // vmID search
+      const isVmId = /^vm?[0-9]{3,6}$/i.test(s);
+
+      if (isVmId) {
+        const clean = s.replace("vm", "");
+        filter.id = { $regex: clean, $options: "i" };
       } else {
-        query.$or = [
+        filter.$or = [
           { fullName: { $regex: s, $options: "i" } },
-          { firstName: { $regex: s, $options: "i" } },
-          { middleName: { $regex: s, $options: "i" } },
           { lastName: { $regex: s, $options: "i" } },
-          { mobile: { $regex: s, $options: "i" } },
           { email: { $regex: s, $options: "i" } },
+          { mobile: { $regex: s, $options: "i" } },
         ];
       }
     }
 
-    // ------------------------------------
+    // -----------------------------------------
     // 🟡 FILTERS
-    // ------------------------------------
-    if (statusFilter.trim()) {
-      query.adminApprovel = {
-        $regex: `^${statusFilter.trim()}$`,
-        $options: "i",
-      };
+    // -----------------------------------------
+    if (status) filter.adminApprovel = new RegExp(status, "i");
+    if (gender) filter.gender = new RegExp(gender, "i");
+
+    // -----------------------------------------
+    // 🔽 SORTING
+    // -----------------------------------------
+    const sort = {};
+    const validSort = ["name", "joined", "status", "gender", "lastActive"];
+
+    if (validSort.includes(sortField)) {
+      if (sortField === "name") sort.fullName = sortOrder === "asc" ? 1 : -1;
+      else if (sortField === "joined") sort.createdAt = sortOrder === "asc" ? 1 : -1;
+      else if (sortField === "status") sort.adminApprovel = sortOrder === "asc" ? 1 : -1;
+      else if (sortField === "gender") sort.gender = sortOrder === "asc" ? 1 : -1;
+      else if (sortField === "lastActive") sort.updatedAt = sortOrder === "asc" ? 1 : -1;
+    } else {
+      sort.createdAt = -1;
     }
 
-    if (genderFilter.trim()) {
-      query.gender = {
-        $regex: `^${genderFilter.trim()}$`,
-        $options: "i",
-      };
-    }
-
-    // ------------------------------------
-    // 🔼 SORTING
-    // ------------------------------------
-    const sortFields = {
-      name: "fullName",
-      email: "email",
-      mobile: "mobile",
-      gender: "gender",
-      joined: "createdAt",
-      status: "adminApprovel",
-      lastActive: "lastLoginAt",
-    };
-
-    const sortKey = sortFields[sortBy] || "createdAt";
-    const sortDirection = sortOrder === "asc" ? 1 : -1;
-    const sort = { [sortKey]: sortDirection };
-
-    // ------------------------------------
-    // 📥 PAGINATION LOGIC
-    // ------------------------------------
+    // -----------------------------------------
+    // 📌 PAGINATION
+    // -----------------------------------------
+    page = Number(page);
+    limit = Number(limit);
     const skip = (page - 1) * limit;
 
-    const totalUsers = await RegisterModel.countDocuments(query);
+    const [users, total] = await Promise.all([
+      RegisterModel.find(filter).sort(sort).skip(skip).limit(limit).lean(),
+      RegisterModel.countDocuments(filter),
+    ]);
 
-    const users = await RegisterModel.find(query)
-      .sort(sort)
-      .skip(skip)          // ⭐ Skip users
-      .limit(Number(limit)) // ⭐ Limit to 5
-      .collation({ locale: "en", strength: 2 });
-
-    // ------------------------------------
-    // 🎨 FORMAT RESPONSE
-    // ------------------------------------
-    const formatted = users.map((u, index) => {
-      const fallbackUserId = String(skip + index + 1).padStart(6, "0");
-
-      const finalId = u.id || `#${fallbackUserId}`;
-
-      const name =
-        u.fullName ||
-        `${u.firstName || ""} ${u.middleName || ""} ${u.lastName || ""}`.trim() ||
-        "N/A";
-
-      const status = u.adminApprovel
-        ? u.adminApprovel.charAt(0).toUpperCase() + u.adminApprovel.slice(1).toLowerCase()
-        : "Pending";
-
-      const gender = u.gender
-        ? u.gender.charAt(0).toUpperCase() + u.gender.slice(1).toLowerCase()
-        : "N/A";
+    // -----------------------------------------
+    // 🎨 FORMAT OUTPUT
+    // -----------------------------------------
+    const formattedUsers = users.map((user, index) => {
+      // fallback only for old users
+      const fallbackId = "vm" + String(skip + index + 1).padStart(5, "0");
 
       return {
-        id: finalId,
-        mongoId: u._id,
-        fullName: name,
-        email: u.email || "N/A",
-        mobile: u.mobile || "N/A",
-        gender,
-        status,
-        location: u.currentCity || u.city || "N/A",
-        profileImage: u.profileImage || null,
-        joined: moment(u.createdAt).format("DD MMM, YYYY"),
-        lastActive: u.lastLoginAt
-          ? moment(u.lastLoginAt).format("DD MMM, YYYY")
-          : "N/A",
+        id: user.id || fallbackId, // always return real VM ID
+        name:
+          user.fullName ||
+          `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
+          "N/A",
+        gender: user.gender || "",
+        location: user.currentCity || user.city || "",
+        profileImage: user.profileImage || null,
+
+        joined: user.createdAt
+          ? new Date(user.createdAt).toLocaleDateString("en-IN", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+            })
+          : "",
+        verified: user.isMobileVerified || false,
+
+        lastActive: user.updatedAt
+          ? new Date(user.updatedAt).toLocaleDateString("en-IN", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+            })
+          : "",
+        status: capitalizeStatus(user.adminApprovel),
       };
     });
 
-    // ------------------------------------
-    // 📤 RESPONSE
-    // ------------------------------------
     res.status(200).json({
-      success: true,
-      totalUsers,
-      currentPage: Number(page),
-      totalPages: Math.ceil(totalUsers / limit),
-      data: formatted,
+      users: formattedUsers,
+      total,
+      totalPages: Math.ceil(total / limit),
     });
-
   } catch (error) {
-    console.error("User Manage Fetch Error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Error while fetching users",
-      error: error.message,
-    });
+    console.error("Error fetching users:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
+
 
 
 
@@ -853,121 +832,128 @@ export const updateUserById = async (req, res) => {
 
 
 
-export const getFilteredManageUsers = async (req, res) => {
+export const getAllManageUserData = async (req, res) => {
   try {
-    let {
+    const {
       search = "",
-      status = "",
-      gender = "",
-      sortField = "",
-      sortOrder = "asc",
+      statusFilter = "",
+      genderFilter = "",
+      sortBy = "createdAt",
+      sortOrder = "desc",
       page = 1,
       limit = 5,
     } = req.query;
 
-    const filter = {};
+    const query = {};
 
-    // -----------------------------------------
-    // 🔍 SEARCH
-    // -----------------------------------------
+    // ------------------------------------
+    // 🔍 SEARCH (supports vm ID search)
+    // ------------------------------------
     if (search.trim()) {
       const s = search.trim();
 
-      const isIdFragment = /^#?[0-9]{1,6}$/i.test(s); // 👉 for vmId like #000123
+      const isVm = /^vm?[0-9]{3,6}$/i.test(s);
 
-      if (isIdFragment) {
-        filter.id = { $regex: s.replace("#", ""), $options: "i" }; // ⭐ search by VM ID
+      if (isVm) {
+        const clean = s.replace("vm", "");
+        query.id = { $regex: clean, $options: "i" };
       } else {
-        filter.$or = [
+        query.$or = [
           { fullName: { $regex: s, $options: "i" } },
+          { firstName: { $regex: s, $options: "i" } },
+          { middleName: { $regex: s, $options: "i" } },
           { lastName: { $regex: s, $options: "i" } },
+          { mobile: { $regex: s, $options: "i" } },
           { email: { $regex: s, $options: "i" } },
-          { mobile: { $regex: s, $options: "i" } }
         ];
       }
     }
 
-    // -----------------------------------------
+    // ------------------------------------
     // 🟡 FILTERS
-    // -----------------------------------------
-    if (status) filter.adminApprovel = new RegExp(status, "i");
-    if (gender) filter.gender = new RegExp(gender, "i");
+    // ------------------------------------
+    if (statusFilter.trim())
+      query.adminApprovel = new RegExp(statusFilter, "i");
 
-    // -----------------------------------------
-    // 🔽 SORTING
-    // -----------------------------------------
-    const sort = {};
-    const validSort = ["name", "joined", "status", "gender", "lastActive"];
+    if (genderFilter.trim())
+      query.gender = new RegExp(genderFilter, "i");
 
-    if (validSort.includes(sortField)) {
-      if (sortField === "name") sort.fullName = sortOrder === "asc" ? 1 : -1;
-      else if (sortField === "joined") sort.createdAt = sortOrder === "asc" ? 1 : -1;
-      else if (sortField === "status") sort.adminApprovel = sortOrder === "asc" ? 1 : -1;
-      else if (sortField === "gender") sort.gender = sortOrder === "asc" ? 1 : -1;
-      else if (sortField === "lastActive") sort.updatedAt = sortOrder === "asc" ? 1 : -1;
-    } else {
-      sort.createdAt = -1;
-    }
+    // ------------------------------------
+    // 🔼 SORTING
+    // ------------------------------------
+    const sortFieldMap = {
+      name: "fullName",
+      email: "email",
+      mobile: "mobile",
+      gender: "gender",
+      joined: "createdAt",
+      status: "adminApprovel",
+      lastActive: "lastLoginAt",
+    };
 
-    // -----------------------------------------
-    // 📌 PAGINATION
-    // -----------------------------------------
-    page = Number(page);
-    limit = Number(limit);
+    const sortKey = sortFieldMap[sortBy] || "createdAt";
+    const sort = { [sortKey]: sortOrder === "asc" ? 1 : -1 };
+
+    // ------------------------------------
+    // 📥 PAGINATION LOGIC
+    // ------------------------------------
     const skip = (page - 1) * limit;
 
-    const [users, total] = await Promise.all([
-      RegisterModel.find(filter).sort(sort).skip(skip).limit(limit).lean(),
-      RegisterModel.countDocuments(filter)
-    ]);
+    const totalUsers = await RegisterModel.countDocuments(query);
 
-    // -----------------------------------------
-    // 🎨 FORMAT OUTPUT
-    // -----------------------------------------
-    const formattedUsers = users.map((user, index) => {
-      // 🔥 Fallback if user.id is missing (OLD USERS)
-      const fallbackId = "#" + String(skip + index + 1).padStart(6, "0");
+    const users = await RegisterModel.find(query)
+      .sort(sort)
+      .skip(skip)
+      .limit(Number(limit))
+      .lean();
+
+    // ------------------------------------
+    // 🎨 FORMAT RESPONSE
+    // ------------------------------------
+    const formatted = users.map((u, index) => {
+      const fallbackId = "vm" + String(skip + index + 1).padStart(5, "0");
+
+      const finalId = u.id || fallbackId;
+
+      const name =
+        u.fullName ||
+        `${u.firstName || ""} ${u.middleName || ""} ${u.lastName || ""}`.trim() ||
+        "N/A";
 
       return {
-        id: user.id || fallbackId,  // ⭐ ALWAYS RETURN VM ID
-        name:
-          user.fullName ||
-          `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
-          "N/A",
-        gender: user.gender || "",
-        location: user.currentCity || user.city || "",
-        profileImage: user.profileImage || null,
-
-        joined: user.createdAt
-          ? new Date(user.createdAt).toLocaleDateString("en-IN", {
-              day: "2-digit",
-              month: "short",
-              year: "numeric",
-            })
-          : "",
-        verified: user.isMobileVerified || false,
-
-        lastActive: user.updatedAt
-          ? new Date(user.updatedAt).toLocaleDateString("en-IN", {
-              day: "2-digit",
-              month: "short",
-              year: "numeric",
-            })
-          : "",
-        status: capitalizeStatus(user.adminApprovel),
+        id: finalId,
+        mongoId: u._id,
+        fullName: name,
+        email: u.email || "N/A",
+        mobile: u.mobile || "N/A",
+        gender: u.gender || "N/A",
+        status: u.adminApprovel || "Pending",
+        location: u.currentCity || u.city || "N/A",
+        profileImage: u.profileImage || null,
+        joined: moment(u.createdAt).format("DD MMM, YYYY"),
+        lastActive: u.lastLoginAt
+          ? moment(u.lastLoginAt).format("DD MMM, YYYY")
+          : "N/A",
       };
     });
 
     res.status(200).json({
-      users: formattedUsers,
-      total,
-      totalPages: Math.ceil(total / limit),
+      success: true,
+      totalUsers,
+      currentPage: Number(page),
+      totalPages: Math.ceil(totalUsers / limit),
+      data: formatted,
     });
   } catch (error) {
-    console.error("Error fetching users:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
+    console.error("User Manage Fetch Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error while fetching users",
+      error: error.message,
+    });
   }
 };
+
 
 
 
