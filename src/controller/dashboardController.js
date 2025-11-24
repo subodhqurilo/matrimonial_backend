@@ -601,12 +601,14 @@ export const getFilteredManageUsers = async (req, res) => {
       gender = "",
       sortField = "",
       sortOrder = "asc",
+      page = 1,
+      limit = 5,
     } = req.query;
 
     const filter = {};
 
     // -----------------------------------------
-    // 🔍 SEARCH  (supports vm12345, 12345, vm12, etc.)
+    // 🔍 SEARCH (supports vm12345, 12345, vm12, etc.)
     // -----------------------------------------
     if (search.trim()) {
       const s = search.trim();
@@ -649,17 +651,26 @@ export const getFilteredManageUsers = async (req, res) => {
     }
 
     // -----------------------------------------
-    // 📌 FETCH ALL USERS (NO PAGINATION)
+    // 📌 PAGINATION LOGIC
     // -----------------------------------------
-    const users = await RegisterModel.find(filter).sort(sort).lean();
+    page = Number(page);
+    limit = Number(limit);
 
-    const total = users.length;
+    const skip = (page - 1) * limit;
+
+    const total = await RegisterModel.countDocuments(filter);
+
+    const users = await RegisterModel.find(filter)
+      .sort(sort)
+      .skip(skip)
+      .limit(limit)
+      .lean();
 
     // -----------------------------------------
     // 🎨 FORMAT OUTPUT
     // -----------------------------------------
     const formattedUsers = users.map((user, index) => {
-      const fallbackId = "vm" + String(index + 1).padStart(5, "0");
+      const fallbackId = "vm" + String(skip + index + 1).padStart(5, "0");
 
       return {
         id: user.id || fallbackId,
@@ -694,13 +705,16 @@ export const getFilteredManageUsers = async (req, res) => {
     res.status(200).json({
       users: formattedUsers,
       total,
-      totalPages: 1, // ⭐ always 1 page
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
     console.error("Error fetching users:", error);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
+
 
 
 
@@ -832,6 +846,8 @@ export const getAllManageUserData = async (req, res) => {
       genderFilter = "",
       sortBy = "createdAt",
       sortOrder = "desc",
+      page = 1,
+      limit = 5,
     } = req.query;
 
     const query = {};
@@ -885,19 +901,25 @@ export const getAllManageUserData = async (req, res) => {
     const sort = { [sortKey]: sortOrder === "asc" ? 1 : -1 };
 
     // ------------------------------------
-    // 📥 FETCH ALL USERS (NO PAGINATION)
+    // 📌 PAGINATION LOGIC
     // ------------------------------------
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    const totalUsers = await RegisterModel.countDocuments(query);
+
     const users = await RegisterModel.find(query)
       .sort(sort)
+      .skip(skip)
+      .limit(limitNum)
       .lean();
-
-    const totalUsers = users.length;
 
     // ------------------------------------
     // 🎨 FORMAT RESPONSE
     // ------------------------------------
     const formatted = users.map((u, index) => {
-      const fallbackId = "vm" + String(index + 1).padStart(5, "0");
+      const fallbackId = "vm" + String(skip + index + 1).padStart(5, "0");
       const finalId = u.id || fallbackId;
 
       const name =
@@ -925,9 +947,11 @@ export const getAllManageUserData = async (req, res) => {
     res.status(200).json({
       success: true,
       totalUsers,
-      totalPages: 1,
+      currentPage: pageNum,
+      totalPages: Math.ceil(totalUsers / limitNum),
       data: formatted,
     });
+
   } catch (error) {
     console.error("User Manage Fetch Error:", error);
     res.status(500).json({
@@ -937,6 +961,7 @@ export const getAllManageUserData = async (req, res) => {
     });
   }
 };
+
 
 
 
