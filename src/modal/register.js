@@ -156,6 +156,8 @@ blockedUsers: {
   default: [],
 },
 lastLogin: { type: Date, default: null },
+expoToken: { type: String, default: "" },
+
 
 }, { timestamps: true });
 

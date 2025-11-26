@@ -22,14 +22,35 @@ export const socketHandler = (io) => {
       io.emit("onlineUsers", Array.from(onlineUsers.keys()));
     });
 
+    // -------------------------------------------------------------------
+    // 🔔 NOTIFICATION RECEIVER (from backend controller)
+    // -------------------------------------------------------------------
+    socket.on("newNotification", (data) => {
+      console.log("📢 Received Notification (client emitted):", data);
+    });
+
+    // (optional) Client triggered notification event
+    socket.on("send-notification", ({ userId, title, message }) => {
+      if (!userId) return;
+
+      io.to(String(userId)).emit("newNotification", {
+        title,
+        message,
+        createdAt: new Date(),
+      });
+
+      console.log("🔔 Notification sent to user:", userId);
+    });
+
     // 📩 Send message
     socket.on("send-msg", async ({ from, to, messageText, files }) => {
       try {
-        if (!from || !to || (!messageText && (!files || files.length === 0))) return;
+        if (!from || !to || (!messageText && (!files || files.length === 0)))
+          return;
 
         const conversationId = [String(from), String(to)].sort().join("_");
 
-        // ✅ Sanitize files
+        // Sanitize files
         const safeFiles = (files || []).map((f) => ({
           fileName: f.fileName || "unknown",
           fileUrl: f.fileUrl,
@@ -57,6 +78,15 @@ export const socketHandler = (io) => {
           message.status = "delivered";
 
           io.to(String(to)).emit("msg-receive", message);
+
+          // 🔔 SEND NOTIFICATION WHEN RECEIVER GETS MESSAGE LIVE
+          io.to(String(to)).emit("newNotification", {
+            title: "New Message",
+            message: messageText,
+            type: "message",
+            from: from,
+            createdAt: new Date(),
+          });
         }
 
         // Always confirm to sender
@@ -69,7 +99,7 @@ export const socketHandler = (io) => {
       }
     });
 
-    // 📜 Fetch messages in a conversation
+    // 📜 Fetch messages
     socket.on("get-messages", async ({ from, to }) => {
       try {
         if (!from || !to) return;
@@ -89,7 +119,7 @@ export const socketHandler = (io) => {
       }
     });
 
-    // ✅ Mark messages as read (for read receipts)
+    // Mark messages as read
     socket.on("mark-as-read", async ({ from, to }) => {
       try {
         if (!from || !to) return;
@@ -105,9 +135,15 @@ export const socketHandler = (io) => {
           { $set: { status: "read" } }
         );
 
-        // Notify sender AND receiver
-        io.to(String(from)).emit("messages-read", { conversationId, reader: to });
-        io.to(String(to)).emit("messages-read", { conversationId, reader: to });
+        io.to(String(from)).emit("messages-read", {
+          conversationId,
+          reader: to,
+        });
+
+        io.to(String(to)).emit("messages-read", {
+          conversationId,
+          reader: to,
+        });
       } catch (err) {
         console.error("🚨 mark-as-read error:", err);
         socket.emit("errorMessage", { error: "Failed to mark as read" });

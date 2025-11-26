@@ -383,9 +383,9 @@ export const getUsers = async (req, res) => {
         status:
           user.adminApprovel?.charAt(0).toUpperCase() +
             user.adminApprovel?.slice(1).toLowerCase() || "Pending",
-        lastActive: user.lastLoginAt
-          ? moment(user.lastLoginAt).format("DD MMM, YYYY")
-          : "N/A",
+lastActive: user.lastLogin
+  ? moment(user.lastLogin).format("DD MMM, YYYY")
+  : "N/A",
       };
     });
 

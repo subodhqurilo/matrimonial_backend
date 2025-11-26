@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import RegisterModel from "./src/modal/register.js";
+
 import authRoute from './src/router/auth.js';
 import accountRouter from './src/router/accountRequestRoutes.js';
 import likeRoute from './src/router/likeRoutes.js';
