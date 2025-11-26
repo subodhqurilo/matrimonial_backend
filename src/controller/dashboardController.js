@@ -6,6 +6,8 @@ import MatchModel from '../modal/MatchModel.js';
 import moment from "moment-timezone";
 import { Parser } from "json2csv";
 
+
+
 const now = moment().tz("Asia/Kolkata");
  
 
@@ -284,7 +286,9 @@ export const getUsers = async (req, res) => {
       active,
       sortBy = "createdAt",
       sortOrder = "desc",
-      csv = false
+      csv = false,
+      page = 1,
+      limit = 10,
     } = req.query;
 
     const query = {};
@@ -310,16 +314,15 @@ export const getUsers = async (req, res) => {
     // ------------------------------------
     // 🟡 FILTERS
     // ------------------------------------
-    if (status) query.adminApprovel = status;          // approved, pending, blocked
-    if (gender) query.gender = gender;                 // Male/Female/Other
-    if (city) query.currentCity = city;                
+    if (status) query.adminApprovel = status;
+    if (gender) query.gender = gender;
+    if (city) query.currentCity = city;
     if (state) query.state = state;
 
     if (verified !== undefined) {
       query.verification = verified === "true" ? "Verified" : { $ne: "Verified" };
     }
 
-    // Active users last X days
     if (active) {
       const since = moment().tz("Asia/Kolkata").subtract(Number(active), "days").toDate();
       query.lastLoginAt = { $gte: since };
@@ -342,17 +345,23 @@ export const getUsers = async (req, res) => {
     const sort = { [sortField]: sortOrder === "asc" ? 1 : -1 };
 
     // ------------------------------------
-    // 📥 FETCH USERS
+    // 📊 PAGINATION LOGIC
     // ------------------------------------
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const totalUsers = await RegisterModel.countDocuments(query);
+
     const users = await RegisterModel.find(query)
       .sort(sort)
+      .skip(skip)
+      .limit(Number(limit))
       .collation({ locale: "en", strength: 2 });
 
     // ------------------------------------
     // 🎨 FORMAT DATA FOR UI
     // ------------------------------------
-    const formatted = users.map((user, index) => {
-      const userId = String(index + 1).padStart(6, "0");
+    const formatted = users.map((user, idx) => {
+      const userId = String(skip + idx + 1).padStart(6, "0");
 
       const fullName =
         `${user.firstName || ""} ${user.middleName || ""} ${user.lastName || ""}`.trim() ||
@@ -360,26 +369,20 @@ export const getUsers = async (req, res) => {
         "N/A";
 
       const location = user.currentCity || user.city || user.state || "N/A";
-
       const verifiedStatus = user.verification === "Verified";
 
       return {
         id: `#${userId}`,
         mongoId: user._id,
-
         name: fullName,
         location,
         gender: user.gender || "N/A",
-
         joined: moment(user.createdAt).format("DD MMM, YYYY"),
-
         verified: verifiedStatus ? "Yes" : "No",
         verifiedIcon: verifiedStatus ? "green" : "red",
-
         status:
           user.adminApprovel?.charAt(0).toUpperCase() +
             user.adminApprovel?.slice(1).toLowerCase() || "Pending",
-
         lastActive: user.lastLoginAt
           ? moment(user.lastLoginAt).format("DD MMM, YYYY")
           : "N/A",
@@ -390,17 +393,7 @@ export const getUsers = async (req, res) => {
     // 📤 CSV EXPORT
     // ------------------------------------
     if (csv === "true") {
-      const fields = [
-        "id",
-        "name",
-        "location",
-        "gender",
-        "joined",
-        "verified",
-        "status",
-        "lastActive"
-      ];
-
+      const fields = ["id", "name", "location", "gender", "joined", "verified", "status", "lastActive"];
       const parser = new Parser({ fields });
       const csvData = parser.parse(formatted);
 
@@ -410,10 +403,13 @@ export const getUsers = async (req, res) => {
     }
 
     // ------------------------------------
-    // 📤 JSON RESPONSE
+    // 📤 JSON RESPONSE WITH PAGINATION
     // ------------------------------------
     res.status(200).json({
-      totalUsers: formatted.length,
+      currentPage: Number(page),
+      totalPages: Math.ceil(totalUsers / Number(limit)),
+      totalUsers,
+      limit: Number(limit),
       data: formatted
     });
 
@@ -422,6 +418,7 @@ export const getUsers = async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
 
 
 
@@ -1552,6 +1549,80 @@ export const getSingleUserById = async (req, res) => {
   }
 };
 
+
+
+
+export const getWeeklyReportStats = async (req, res) => {
+  try {
+    const today = moment().startOf("day");
+    const result = [];
+
+    // Report Categories (must match your chart labels)
+    const categories = [
+      "Fake",
+      "Inappropriate profile",
+      "Spam",
+      "Harassment"
+    ];
+
+    for (let i = 6; i >= 0; i--) {
+      const dayStart = moment(today).subtract(i, "days").startOf("day");
+      const dayEnd = moment(today).subtract(i, "days").endOf("day");
+
+      const dayName = dayStart.format("ddd"); // Sun, Mon...
+
+      const dayData = {
+        day: dayName,
+        fake: 0,
+        inappropriate: 0,
+        spam: 0,
+        harassment: 0
+      };
+
+      // Fetch counts per category
+      const fakeCount = await ReportModel.countDocuments({
+        title: "Fake",
+        createdAt: { $gte: dayStart.toDate(), $lte: dayEnd.toDate() }
+      });
+
+      const inapCount = await ReportModel.countDocuments({
+        title: "Inappropriate profile",
+        createdAt: { $gte: dayStart.toDate(), $lte: dayEnd.toDate() }
+      });
+
+      const spamCount = await ReportModel.countDocuments({
+        title: "Spam",
+        createdAt: { $gte: dayStart.toDate(), $lte: dayEnd.toDate() }
+      });
+
+      const harassmentCount = await ReportModel.countDocuments({
+        title: "Harassment",
+        createdAt: { $gte: dayStart.toDate(), $lte: dayEnd.toDate() }
+      });
+
+      // assign values
+      dayData.fake = fakeCount;
+      dayData.inappropriate = inapCount;
+      dayData.spam = spamCount;
+      dayData.harassment = harassmentCount;
+
+      result.push(dayData);
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+    });
+
+  } catch (error) {
+    console.error("Report Stats Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
 
 
 

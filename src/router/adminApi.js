@@ -1,5 +1,5 @@
 import express  from "express";
-import { updateReportStatus, getAllManageUserData, getAllReportsAnalize, getAllUsers,getReportedContent, getFilteredManageUsers, getMatchesPerMonth, getProfileOverview, getSearchToMatchStats, getSignupGender, getSingleUserById, getStatsSummary, getUserManage, getUsers, getUserSignupTrends, getWeeklyReports, updateUserById, updateUserStatus, verifyAadhaar } from "../controller/dashboardController.js";
+import { updateReportStatus,getWeeklyReportStats , getAllManageUserData, getAllReportsAnalize, getAllUsers,getReportedContent, getFilteredManageUsers, getMatchesPerMonth, getProfileOverview, getSearchToMatchStats, getSignupGender, getSingleUserById, getStatsSummary, getUserManage, getUsers, getUserSignupTrends, getWeeklyReports, updateUserById, updateUserStatus, verifyAadhaar } from "../controller/dashboardController.js";
 
 
 const adminRoute = express.Router();
@@ -30,6 +30,7 @@ adminRoute.get('/user/:id', getSingleUserById);
 
 
 adminRoute.get('/user-signup-trends', getUserSignupTrends);
+adminRoute.get('/WeeklyReportStats', getWeeklyReportStats );
 
 adminRoute.get('/overview', getProfileOverview);
 adminRoute.get('/matches-per-month', getMatchesPerMonth);
