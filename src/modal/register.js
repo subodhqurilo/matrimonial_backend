@@ -155,6 +155,7 @@ blockedUsers: {
   ref: "Register",
   default: [],
 },
+lastLogin: { type: Date, default: null },
 
 }, { timestamps: true });
 

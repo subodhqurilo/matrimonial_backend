@@ -1557,31 +1557,41 @@ export const getSingleUserById = async (req, res) => {
 
 export const getUserSignupTrends = async (req, res) => {
   try {
-    const today = moment().startOf('day');
-
-    const userTrendData = [];
+    const today = moment().startOf("day");
+    const trendData = [];
 
     for (let i = 6; i >= 0; i--) {
-      const dayStart = moment(today).subtract(i, 'days').startOf('day');
-      const dayEnd = moment(today).subtract(i, 'days').endOf('day');
+      const dayStart = moment(today).subtract(i, "days").startOf("day");
+      const dayEnd = moment(today).subtract(i, "days").endOf("day");
 
-      const count = await RegisterModel.countDocuments({
+      // 🟡 NEW USERS
+      const newUsers = await RegisterModel.countDocuments({
         createdAt: { $gte: dayStart.toDate(), $lte: dayEnd.toDate() },
-        adminApprovel: 'approved', 
+        adminApprovel: "approved",
       });
 
-      userTrendData.push({
-        date: dayStart.format('ddd'), 
-        newUsers: count,
+      // 🟢 RETURNING USERS (LOGIN DONE TODAY)
+      const returningUsers = await RegisterModel.countDocuments({
+        lastLogin: { $gte: dayStart.toDate(), $lte: dayEnd.toDate() },
+        adminApprovel: "approved",
+      });
+
+      trendData.push({
+        date: dayStart.format("ddd"),
+        newUsers,
+        returningUsers,
       });
     }
 
-    res.status(200).json({ success: true, data: userTrendData });
+    res.status(200).json({ success: true, data: trendData });
+
   } catch (err) {
-    console.error('Signup Trend Error:', err);
-    res.status(500).json({ success: false, message: 'Server Error' });
+    console.error("User Trend Error:", err);
+    res.status(500).json({ success: false, message: "Server Error" });
   }
 };
+
+
 
 export const getProfileOverview = async (req, res) => {
   try {

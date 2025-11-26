@@ -224,6 +224,7 @@ export const requestLoginOtp = async (req, res) => {
 export const login = async (req, res) => {
   try {
     const { mobile, otp } = req.body;
+
     if (!mobile || !otp) {
       return res.status(400).json({ success: false, message: "Mobile and OTP are required" });
     }
@@ -240,6 +241,11 @@ export const login = async (req, res) => {
 
     await OtpModel.deleteMany({ mobile });
 
+    // ⭐⭐⭐ ADD THIS PART — UPDATE LAST LOGIN ⭐⭐⭐
+    await RegisterModel.findByIdAndUpdate(user._id, {
+      lastLogin: new Date(),
+    });
+
     const token = jwt.sign(
       { userId: user._id },
       JWT_SECRET,
@@ -248,12 +254,8 @@ export const login = async (req, res) => {
 
     // ⭐ CORRECT ADMIN–BASED KYC CHECK
     let kycStatus = "pending";
-
-    if (user.adminApprovel === "approved") {
-      kycStatus = "approved";
-    } else if (user.adminApprovel === "reject") {
-      kycStatus = "reject";
-    }
+    if (user.adminApprovel === "approved") kycStatus = "approved";
+    if (user.adminApprovel === "reject") kycStatus = "reject";
 
     return res.status(200).json({
       success: true,
@@ -271,6 +273,7 @@ export const login = async (req, res) => {
     });
   }
 };
+
 
 
 
