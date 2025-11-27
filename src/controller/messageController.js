@@ -29,7 +29,7 @@ export const postMessage = async (req, res) => {
 
     const uploadedFiles = (req.files || []).map((file) => ({
       fileName: file.originalname,
-      fileUrl: file.path,
+      fileUrl: file.path,  
       fileType: file.mimetype,
       fileSize: file.size,
     }));
@@ -40,22 +40,27 @@ export const postMessage = async (req, res) => {
 
     const conversationId = getConversationId(senderId, receiverId);
 
+    // ⭐ Create message
     let message = await messageModel.create({
       senderId,
       receiverId,
       conversationId,
       messageText: messageText?.trim() || "",
       files: uploadedFiles,
-      replyTo: replyToId || null,   // ⭐ REPLY ADDED
+      replyTo: replyToId || null,   // ⭐⭐ MUST BE ADDED
       status: "sent",
     });
 
-    message = await message.populate("replyTo");
+    // ⭐ Populate replyTo message
+    if (message.replyTo) {
+      message = await message.populate("replyTo");
+    }
 
+    // ⭐ Emit to socket
     const io = req.app.get("io");
     if (io) {
-      io.to(String(receiverId)).emit("receiveMessage", message);
-      io.to(String(senderId)).emit("messageSent", message);
+      io.to(String(receiverId)).emit("msg-receive", message);
+      io.to(String(senderId)).emit("msg-sent", message);
     }
 
     res.status(201).json({
@@ -69,7 +74,6 @@ export const postMessage = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
-
 
 
 
