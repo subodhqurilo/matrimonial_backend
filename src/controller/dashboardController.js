@@ -154,9 +154,9 @@ export const getSignupGender = async (req, res) => {
     const sevenDaysAgo = now.clone().subtract(7, "days").toDate();
     const today = now.toDate();
 
-    // ----------------------------------
+    // -------------------------------
     // 1️⃣ GENDER COUNTS
-    // ----------------------------------
+    // -------------------------------
     const genderAgg = await RegisterModel.aggregate([
       {
         $group: {
@@ -173,9 +173,9 @@ export const getSignupGender = async (req, res) => {
       else genderCounts.Others += g.count;
     });
 
-    // ----------------------------------
+    // -------------------------------
     // 2️⃣ MATCH STATS
-    // ----------------------------------
+    // -------------------------------
     const users = await RegisterModel.find(
       {},
       { createdAt: 1, adminApprovel: 1, isMobileVerified: 1 }
@@ -202,10 +202,9 @@ export const getSignupGender = async (req, res) => {
       }
     });
 
-    // ----------------------------------
-    // 3️⃣ MONTH COMPARISON GRAPH (Current vs Previous Month)
-    // ----------------------------------
-
+    // -------------------------------
+    // 3️⃣ MONTH GRAPH (Current & Previous)
+    // -------------------------------
     const monthAgg = await RegisterModel.aggregate([
       {
         $match: {
@@ -227,7 +226,6 @@ export const getSignupGender = async (req, res) => {
     ]);
 
     const daysInCurrent = now.daysInMonth();
-    const daysInPrev = now.clone().subtract(1, "month").daysInMonth();
 
     const signInData = [];
 
@@ -241,37 +239,59 @@ export const getSignupGender = async (req, res) => {
 
     monthAgg.forEach(entry => {
       const dayKey = String(entry._id.day).padStart(2, "0");
-
       const month = entry._id.month;
+
+      // Current month
       if (month === now.month() + 1) {
-        // current month
         const d = signInData.find(v => v.day === dayKey);
         if (d) d.currentMonth += entry.count;
-      } else if (month === now.clone().subtract(1, "month").month() + 1) {
-        // previous month only if that day exists in current month (UI safe)
+      }
+
+      // Previous month
+      if (month === now.clone().subtract(1, "month").month() + 1) {
         const d = signInData.find(v => v.day === dayKey);
         if (d) d.previousMonth += entry.count;
       }
     });
 
-    // ----------------------------------
-    // FINAL RESPONSE
-    // ----------------------------------
+    // -------------------------------
+    // 4️⃣ TOTALS + GROWTH %
+    // -------------------------------
+    const totalCurrentMonthSignIns = signInData.reduce((s, v) => s + v.currentMonth, 0);
+    const totalPreviousMonthSignIns = signInData.reduce((s, v) => s + v.previousMonth, 0);
 
+    let percentGrowth = 0;
+
+    if (totalPreviousMonthSignIns === 0) {
+      percentGrowth = totalCurrentMonthSignIns > 0 ? 100 : 0;
+    } else {
+      percentGrowth =
+        ((totalCurrentMonthSignIns - totalPreviousMonthSignIns) /
+          totalPreviousMonthSignIns) * 100;
+    }
+
+    percentGrowth = Math.round(percentGrowth);
+
+    // -------------------------------
+    // FINAL RESPONSE
+    // -------------------------------
     res.json({
       genderData: [
         { name: "Male", value: genderCounts.Male },
-        { name: "Female", value: genderCounts.Female },
-        // { name: "Others", value: genderCounts.Others }
+        { name: "Female", value: genderCounts.Female }
       ],
+
       matchData: [
         { name: "Still Looking", value: matchStats.stillLooking },
         { name: "Successfully Matched", value: matchStats.matched },
         { name: "Newly Registered", value: matchStats.newlyRegistered },
         { name: "Inactive", value: matchStats.inactive },
       ],
-      signInData, // current vs previous month graph
-      totalCurrentMonthSignIns: signInData.reduce((s, v) => s + v.currentMonth, 0)
+
+      signInData,
+      totalCurrentMonthSignIns,
+      totalPreviousMonthSignIns,
+      percentGrowth, // ⭐ This makes UI show 12%
     });
 
   } catch (err) {
@@ -279,6 +299,7 @@ export const getSignupGender = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch analytics data" });
   }
 };
+
 
 
  
