@@ -20,7 +20,7 @@ const getConversationId = (id1, id2) => {
  */
 export const postMessage = async (req, res) => {
   try {
-    const { receiverId, messageText } = req.body;
+    const { receiverId, messageText, replyToId } = req.body;  // 👈 replyToId receive here
     const senderId = req.userId;
 
     if (!senderId || !receiverId) {
@@ -29,7 +29,7 @@ export const postMessage = async (req, res) => {
 
     const uploadedFiles = (req.files || []).map((file) => ({
       fileName: file.originalname,
-      fileUrl: file.path,   // Cloudinary returns full URL in file.path
+      fileUrl: file.path,
       fileType: file.mimetype,
       fileSize: file.size,
     }));
@@ -40,14 +40,19 @@ export const postMessage = async (req, res) => {
 
     const conversationId = getConversationId(senderId, receiverId);
 
+    // 👇 message create with replyTo
     let message = await messageModel.create({
       senderId,
       receiverId,
       conversationId,
       messageText: messageText?.trim() || "",
-      files: uploadedFiles, // 👈 ADD THIS
+      files: uploadedFiles,
       status: "sent",
+      replyTo: replyToId || null,      // 👈 ADD THIS
     });
+
+    // 👇 Populate replyTo so frontend gets full object
+    message = await message.populate("replyTo");   // 👈 ADD THIS
 
     const io = req.app.get("io");
     if (io) {
@@ -65,6 +70,7 @@ export const postMessage = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
 
 
 
