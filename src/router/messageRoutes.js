@@ -17,10 +17,15 @@ import {
 
 } from '../controller/messageController.js';
 import { authenticateUser } from '../middlewares/authMiddleware.js';
+import upload from '../middlewares/multer.js'; // OK
+
+
 
 const messageRoutes = express.Router();
 
-messageRoutes.post('/', authenticateUser, postMessage);
+messageRoutes.post('/', authenticateUser, upload.array("files"), postMessage);
+
+
 messageRoutes.get('/', authenticateUser, getMessages);
 messageRoutes.get('/allUser', authenticateUser, getAllUser);
 messageRoutes.get('/unreadCount', authenticateUser, getUnreadMessagesCount);

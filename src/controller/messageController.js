@@ -4,6 +4,7 @@ import messageModel from "../modal/messageModel.js";
 
 import { getOnlineUserIds } from "../../socket.js";
 import RegisterModel from "../modal/register.js";
+import cloudinary from "../utils/cloudinary.js";
 
 /**
  * Utility: generate a consistent conversationId
@@ -22,48 +23,35 @@ export const postMessage = async (req, res) => {
     const { receiverId, messageText } = req.body;
     const senderId = req.userId;
 
-    if (!senderId || !receiverId || !messageText?.trim()) {
-      return res
-        .status(400)
-        .json({ success: false, message: "All fields are required" });
+    if (!senderId || !receiverId) {
+      return res.status(400).json({ success: false, message: "receiverId required" });
     }
 
-    // ✅ BLOCK CHECK: if receiver blocked sender → sender cannot message
-    const receiver = await RegisterModel.findById(receiverId);
+    const uploadedFiles = (req.files || []).map((file) => ({
+      fileName: file.originalname,
+      fileUrl: file.path,   // Cloudinary returns full URL in file.path
+      fileType: file.mimetype,
+      fileSize: file.size,
+    }));
 
-    if (receiver?.blockedUsers?.includes(senderId)) {
-      return res.status(403).json({
-        success: false,
-        message: "You are blocked by this user. Cannot send message.",
-      });
+    if (!messageText?.trim() && uploadedFiles.length === 0) {
+      return res.status(400).json({ success: false, message: "Text or file required" });
     }
 
     const conversationId = getConversationId(senderId, receiverId);
 
-    // 1) save
     let message = await messageModel.create({
       senderId,
       receiverId,
       conversationId,
-      messageText: messageText.trim(),
+      messageText: messageText?.trim() || "",
+      files: uploadedFiles, // 👈 ADD THIS
       status: "sent",
     });
 
-    // 2) if receiver online, mark delivered + emit via sockets
     const io = req.app.get("io");
     if (io) {
       io.to(String(receiverId)).emit("receiveMessage", message);
-
-      const onlineIds = new Set(getOnlineUserIds());
-      if (onlineIds.has(String(receiverId))) {
-        await messageModel.updateOne(
-          { _id: message._id },
-          { $set: { status: "delivered" } }
-        );
-        message = await messageModel.findById(message._id); // refresh
-        io.to(String(senderId)).emit("messageDelivered", { messageId: message._id });
-      }
-
       io.to(String(senderId)).emit("messageSent", message);
     }
 
@@ -74,11 +62,10 @@ export const postMessage = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in postMessage:", error);
-    res
-      .status(500)
-      .json({ success: false, message: "Internal server error" });
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
 
 
 /**
