@@ -20,7 +20,7 @@ const getConversationId = (id1, id2) => {
  */
 export const postMessage = async (req, res) => {
   try {
-    const { receiverId, messageText, replyToId } = req.body;  // 👈 replyToId receive here
+    const { receiverId, messageText, replyToId } = req.body;
     const senderId = req.userId;
 
     if (!senderId || !receiverId) {
@@ -40,19 +40,17 @@ export const postMessage = async (req, res) => {
 
     const conversationId = getConversationId(senderId, receiverId);
 
-    // 👇 message create with replyTo
     let message = await messageModel.create({
       senderId,
       receiverId,
       conversationId,
       messageText: messageText?.trim() || "",
       files: uploadedFiles,
+      replyTo: replyToId || null,   // ⭐ REPLY ADDED
       status: "sent",
-      replyTo: replyToId || null,      // 👈 ADD THIS
     });
 
-    // 👇 Populate replyTo so frontend gets full object
-    message = await message.populate("replyTo");   // 👈 ADD THIS
+    message = await message.populate("replyTo");
 
     const io = req.app.get("io");
     if (io) {
@@ -65,11 +63,13 @@ export const postMessage = async (req, res) => {
       message: "Message sent",
       data: message,
     });
+
   } catch (error) {
     console.error("Error in postMessage:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
 
 
 

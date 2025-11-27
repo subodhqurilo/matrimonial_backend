@@ -47,6 +47,11 @@ deletedFor: {
   default: [],
 },
 
+replyTo: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Message",
+  default: null,
+},
 
     // Optional soft delete (you can keep)
     deletedAt: {
