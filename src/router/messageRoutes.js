@@ -12,7 +12,8 @@ import {
   unblockUser,
   deleteChat,
   deleteSingleMessage,
-  getChatHeader
+  getChatHeader,
+  checkBlockStatus 
 
 } from '../controller/messageController.js';
 import { authenticateUser } from '../middlewares/authMiddleware.js';
@@ -38,5 +39,6 @@ messageRoutes.post("/delete/chat", authenticateUser, deleteChat);
 // Single message delete (optional)
 messageRoutes.post("/delete/message", authenticateUser, deleteSingleMessage);
 messageRoutes.get("/chatHeader", authenticateUser, getChatHeader);
+messageRoutes.get("/isBlocked/:otherUserId", authenticateUser, checkBlockStatus);
 
 export default messageRoutes;

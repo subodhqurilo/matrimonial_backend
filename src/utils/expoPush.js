@@ -1,17 +1,16 @@
-import axios from "axios";
+import fetch from "node-fetch";
 
-export const sendExpoPush = async (token, title, message) => {
-  try {
-    await axios.post("https://exp.host/--/api/v2/push/send", {
-      to: token,
+export const sendExpoPush = async (expoToken, title, message) => {
+  if (!expoToken) return;
+
+  await fetch("https://exp.host/--/api/v2/push/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      to: expoToken,
       sound: "default",
-      title: title,
+      title,
       body: message,
-    }, {
-      headers: { "Content-Type": "application/json" }
-    });
-
-  } catch (error) {
-    console.log("Expo Push Error:", error.response?.data || error.message);
-  }
+    }),
+  });
 };

@@ -6,6 +6,7 @@ import OtpModel from "../modal/OtpModel.js";
 import { sendOtpToPhone } from "../utils/sendOtp.js";
 import User from "../modal/User.js"; // adjust path if needed
 import cloudinary from "cloudinary";
+import { authenticateUser } from "../middlewares/authMiddleware.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key";
 

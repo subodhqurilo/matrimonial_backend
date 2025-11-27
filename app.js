@@ -1,7 +1,6 @@
 import express from 'express';
 import cors from 'cors';
 import RegisterModel from "./src/modal/register.js";
-
 import authRoute from './src/router/auth.js';
 import accountRouter from './src/router/accountRequestRoutes.js';
 import likeRoute from './src/router/likeRoutes.js';
@@ -19,6 +18,8 @@ import bannerRouter from './src/router/bannerRoute.js';
 import profileViewRouter from './src/router/profileViewRoutes.js';
 import mutualRouter from './src/modal/mutualModal.js';
 import similarRouter from './src/router/similarProfileRoutes.js';
+// import notificationRouter from "./src/router/notificationRoutes.js";
+import router from "./src/router/notificationRoutes.js"
 
 const app = express();
 
@@ -29,6 +30,8 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use('/auth',authRoute)
 app.use('/api/basic-details',additionalDetail)
+// app.use("/api/notification", notificationRouter);
+app.use('/api/notification', router)
 
 app.use('/api/request',accountRouter)
 app.use('/api/like',likeRoute)
@@ -47,6 +50,14 @@ app.use('/api/similar',similarRouter)
 app.use('/api/banners',bannerRouter)
 app.use('/api/mutual-matches',mutualRouter)
 app.use('/admin',adminRoute)
+
+
+// Save Expo Token (Mobile Push)
+app.post("/save-expo-token", async (req, res) => {
+  const { userId, expoToken } = req.body;
+  await RegisterModel.findByIdAndUpdate(userId, { expoToken });
+  res.json({ success: true });
+});
 
 
 app.get("/", (req, res) => {

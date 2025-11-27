@@ -13,6 +13,7 @@ import {
   verifyOtpAndRegister, // OTP-based registration
 } from "../controller/authController.js";
 
+
 const authRoute = express.Router();
 
 /* ------------------- OTP Registration ------------------- */
@@ -50,32 +51,12 @@ authRoute.get("/aadhaar-status", authenticateUser, aadhaarVerification);
 authRoute.get("/user", authenticateUser, getCurrentUser);
 
 /* ------------------- Push Notification ------------------- */
-authRoute.post("/sendPushNotification", async (req, res) => {
-  try {
-    const receivedToken = req.body.fcmToken;
-    console.log("Received FCM Token:", receivedToken);
 
-    if (!receivedToken) {
-      return res.status(400).json({ error: "FCM token is required" });
-    }
-
-    const message = {
-      notification: {
-        title: "Test Notification",
-        body: "This is a test notification from the server.",
-      },
-      token: receivedToken,
-    };
-
-    // ✅ Send the notification
-    const response = await admin.messaging().send(message);
-
-    console.log("Successfully sent message:", response);
-    res.status(200).json({ success: true, messageId: response });
-  } catch (error) {
-    console.error("Error sending notification:", error);
-    res.status(500).json({ success: false, error: error.message });
-  }
+authRoute.post("/sendPushNotification", (req, res) => {
+  return res.status(400).json({
+    success: false,
+    message: "Push Notification service not configured.",
+  });
 });
 
 export default authRoute;

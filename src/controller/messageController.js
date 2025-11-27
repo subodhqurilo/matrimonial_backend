@@ -204,6 +204,37 @@ export const getOnlineStatus = async (req, res) => {
   }
 };
 
+export const checkBlockStatus = async (req, res) => {
+  try {
+    const userId = req.userId;          // logged in user
+    const otherUserId = req.params.otherUserId;
+
+    if (!otherUserId) {
+      return res.status(400).json({
+        success: false,
+        message: "otherUserId is required",
+      });
+    }
+
+    const me = await RegisterModel.findById(userId).select("blockedUsers");
+    const other = await RegisterModel.findById(otherUserId).select("blockedUsers");
+
+    const iBlocked = me?.blockedUsers?.includes(otherUserId);     // YOU blocked them
+    const blockedMe = other?.blockedUsers?.includes(userId);      // THEY blocked you
+
+    return res.status(200).json({
+      success: true,
+      data: { iBlocked, blockedMe },
+    });
+
+  } catch (error) {
+    console.error("Block status error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+    });
+  }
+};
 
 
 
@@ -491,8 +522,8 @@ export const deleteChat = async (req, res) => {
 
 export const blockUser = async (req, res) => {
   try {
-    const userId = req.userId;        // current user
-    const { otherUserId } = req.body; // user to block
+    const userId = req.userId;
+    const { otherUserId } = req.body;
 
     if (!otherUserId) {
       return res.status(400).json({
@@ -505,6 +536,15 @@ export const blockUser = async (req, res) => {
       $addToSet: { blockedUsers: otherUserId },
     });
 
+    // 🔥 SOCKET EVENT SEND
+    const io = req.app.get("io");
+    if (io) {
+      io.to(String(otherUserId)).emit("user-blocked", {
+        blockedBy: userId,
+        youAreBlocked: true
+      });
+    }
+
     return res.status(200).json({
       success: true,
       message: "User blocked successfully",
@@ -514,6 +554,7 @@ export const blockUser = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
+
 
 export const unblockUser = async (req, res) => {
   try {
@@ -531,6 +572,15 @@ export const unblockUser = async (req, res) => {
       $pull: { blockedUsers: otherUserId },
     });
 
+    // 🔥 SOCKET EVENT SEND
+    const io = req.app.get("io");
+    if (io) {
+      io.to(String(otherUserId)).emit("user-unblocked", {
+        unblockedBy: userId,
+        youAreUnblocked: true
+      });
+    }
+
     return res.status(200).json({
       success: true,
       message: "User unblocked successfully",
@@ -540,6 +590,7 @@ export const unblockUser = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
+
 // 📌 GET CHAT HEADER INFO
 // GET /api/message/chatHeader?userId=<otherUserId>
 export const getChatHeader = async (req, res) => {
