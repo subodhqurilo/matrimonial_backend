@@ -5,6 +5,12 @@ import ReportModel from '../modal/ReportModel.js';
 import MatchModel from '../modal/MatchModel.js';
 import moment from "moment-timezone";
 import { Parser } from "json2csv";
+import AdminModel from "../modal/adminModal.js"; // make sure correct path
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import cloudinary from "../utils/cloudinary.js";
+
+const ADMIN_JWT_SECRET = process.env.JWT_SECRET || "your_secret_key";
 
 
 
@@ -19,6 +25,8 @@ const percent = (current, previous) => {
   if (current > 0) return 100;
   return 0;
 };
+
+
 
 export const getStatsSummary = async (req, res) => {
   try {
@@ -1869,3 +1877,368 @@ export const verifyAadhaar = async (req, res) => {
     });
   }
 };
+export const getAdminProfile = async (req, res) => {
+  try {
+    const adminId = req.userId; // set by authenticateUser()
+
+    const admin = await AdminModel.findById(adminId).select("-password");
+    if (!admin) {
+      return res.status(404).json({ success: false, message: "Admin not found" });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        name: admin.name,
+        email: admin.email,
+        phone: admin.phone || "",
+        role: admin.role || "Admin",
+        profileImage: admin.profileImage || "",
+        assignedRegion: admin.assignedRegion || "All India",
+
+        // Security
+        twoFactor: admin.twoFactor || false,
+        suspiciousLoginAlert: admin.suspiciousLoginAlert || false,
+        recentLoginDevice: admin.recentLoginDevice || "Desktop",
+
+        // Preferences
+        language: admin.language || "English",
+        theme: admin.theme || "light",
+        notifications: admin.notifications ?? true,
+        landingPage: admin.landingPage || "Dashboard",
+      }
+    });
+
+  } catch (error) {
+    console.error("GET ADMIN PROFILE ERROR:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+
+/* ============================================================
+   2. UPDATE BASIC PROFILE INFO
+============================================================ */
+export const updateAdminBasicInfo = async (req, res) => {
+  try {
+    const adminId = req.userId;
+
+    // form-data fields come via req.body
+    const { name, email, phone, assignedRegion } = req.body;
+
+    // Profile image via Multer (optional)
+    const profileImage = req.file ? req.file.path : null;
+
+    const updateFields = {};
+
+    // Only apply if field exists
+    if (name !== undefined) updateFields.name = name;
+    if (email !== undefined) {
+      // Check duplicate email only when provided
+      const emailExists = await AdminModel.findOne({
+        email,
+        _id: { $ne: adminId }
+      });
+
+      if (emailExists) {
+        return res.status(400).json({
+          success: false,
+          message: "Email already in use by another admin",
+        });
+      }
+
+      updateFields.email = email;
+    }
+
+    if (phone !== undefined) updateFields.phone = phone;
+    if (assignedRegion !== undefined)
+      updateFields.assignedRegion = assignedRegion;
+
+    if (profileImage) updateFields.profileImage = profileImage;
+
+    // If no fields provided
+    if (Object.keys(updateFields).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No fields provided to update",
+      });
+    }
+
+    const updated = await AdminModel.findByIdAndUpdate(
+      adminId,
+      updateFields,
+      { new: true }
+    ).select("-password");
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Basic info updated successfully",
+      data: updated,
+    });
+
+  } catch (error) {
+    console.error("UPDATE ADMIN BASIC INFO:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
+
+
+
+/* ============================================================
+   3. CHANGE ADMIN PASSWORD
+============================================================ */
+export const changeAdminPassword = async (req, res) => {
+  try {
+    const adminId = req.userId;
+    const { oldPassword, newPassword } = req.body;
+
+    // 🔍 Validation
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Old password and new password are required",
+      });
+    }
+
+    // 🔍 Fetch admin
+    const admin = await AdminModel.findById(adminId);
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found",
+      });
+    }
+
+    // 🔍 Check old password
+    const isMatch = await bcrypt.compare(oldPassword, admin.password);
+    if (!isMatch) {
+      return res.status(400).json({
+        success: false,
+        message: "Old password is incorrect",
+      });
+    }
+
+    // ❌ Prevent reusing the same password
+    const isSamePassword = await bcrypt.compare(newPassword, admin.password);
+    if (isSamePassword) {
+      return res.status(400).json({
+        success: false,
+        message: "New password cannot be the same as old password",
+      });
+    }
+
+    // 🔐 Optional: enforce strong password (recommended)
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters long",
+      });
+    }
+
+    // 🔐 Hash & update password
+    admin.password = await bcrypt.hash(newPassword, 10);
+    await admin.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Password updated successfully",
+    });
+
+  } catch (error) {
+    console.error("CHANGE PASSWORD ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
+
+
+/* ============================================================
+   4. UPDATE SECURITY SETTINGS
+============================================================ */
+export const updateAdminSecurity = async (req, res) => {
+  try {
+    const adminId = req.userId;
+
+    const {
+      newPassword,              // 🔥 only new password needed
+      twoFactor,
+      suspiciousLoginAlert,
+      recentLoginDevice
+    } = req.body;
+
+    const admin = await AdminModel.findById(adminId);
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found",
+      });
+    }
+
+    const toBool = (v) => {
+      if (v === true || v === "true") return true;
+      if (v === false || v === "false") return false;
+      return undefined;
+    };
+
+    let updateFields = {};
+
+    /* ------------------------------
+       1️⃣ DIRECT PASSWORD CHANGE
+    ------------------------------ */
+    if (newPassword) {
+      updateFields.password = await bcrypt.hash(newPassword, 10);
+    }
+
+    /* ------------------------------
+       2️⃣ TWO FACTOR
+    ------------------------------ */
+    if (twoFactor !== undefined) {
+      updateFields.twoFactor = toBool(twoFactor);
+    }
+
+    /* ------------------------------
+       3️⃣ ALERT ON LOGIN
+    ------------------------------ */
+    if (suspiciousLoginAlert !== undefined) {
+      updateFields.suspiciousLoginAlert = toBool(suspiciousLoginAlert);
+    }
+
+    /* ------------------------------
+       4️⃣ RECENT LOGIN DEVICE
+    ------------------------------ */
+    if (recentLoginDevice !== undefined) {
+      updateFields.recentLoginDevice = recentLoginDevice;
+    }
+
+    /* ------------------------------
+       NOTHING SENT?
+    ------------------------------ */
+    if (Object.keys(updateFields).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No fields provided to update",
+      });
+    }
+
+    const updatedAdmin = await AdminModel.findByIdAndUpdate(
+      adminId,
+      updateFields,
+      { new: true }
+    ).select("-password");
+
+    return res.status(200).json({
+      success: true,
+      message: "Security settings updated successfully",
+      data: updatedAdmin
+    });
+
+  } catch (error) {
+    console.error("SECURITY UPDATE ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message
+    });
+  }
+};
+
+
+
+
+/* ============================================================
+   5. UPDATE ADMIN PREFERENCES
+============================================================ */
+export const updateAdminPreferences = async (req, res) => {
+  try {
+    const adminId = req.userId;
+    let { language, theme, notifications, landingPage } = req.body;
+
+    // Convert boolean strings to true/false
+    const toBool = (value) => {
+      if (value === true || value === "true") return true;
+      if (value === false || value === "false") return false;
+      return undefined;
+    };
+
+    // Allowed values (optional but recommended)
+    const allowedThemes = ["light", "dark", "system"];
+    const allowedLanguages = ["English", "Hindi", "Tamil", "Telugu", "Bengali"];
+    const allowedLandingPages = ["Dashboard", "Users", "Reports", "Settings"];
+
+    const updateFields = {};
+
+    if (language !== undefined) {
+      updateFields.language = allowedLanguages.includes(language)
+        ? language
+        : "English";
+    }
+
+    if (theme !== undefined) {
+      updateFields.theme = allowedThemes.includes(theme)
+        ? theme
+        : "light";
+    }
+
+    if (notifications !== undefined) {
+      updateFields.notifications = toBool(notifications);
+    }
+
+    if (landingPage !== undefined) {
+      updateFields.landingPage = allowedLandingPages.includes(landingPage)
+        ? landingPage
+        : "Dashboard";
+    }
+
+    // Ensure at least one field is being updated
+    if (Object.keys(updateFields).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid preference fields provided",
+      });
+    }
+
+    const updated = await AdminModel.findByIdAndUpdate(
+      adminId,
+      updateFields,
+      { new: true }
+    ).select("-password");
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Preferences updated successfully",
+      data: updated,
+    });
+
+  } catch (error) {
+    console.error("PREFERENCES UPDATE ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message
+    });
+  }
+};
+
