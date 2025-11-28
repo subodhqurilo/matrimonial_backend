@@ -8,7 +8,7 @@ export const getMutualMatches = async (req, res) => {
     if (!userId) {
       return res.status(401).json({
         success: false,
-        message: 'Unauthorized: User ID missing',
+        message: "Unauthorized: User ID missing",
       });
     }
 
@@ -16,11 +16,11 @@ export const getMutualMatches = async (req, res) => {
     if (!currentUser) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: "User not found",
       });
     }
 
-    // Extract arrays safely (ensure arrays)
+    // Extract arrays safely
     const {
       hobbies = [],
       interests = [],
@@ -30,10 +30,10 @@ export const getMutualMatches = async (req, res) => {
       movies = [],
       tvShows = [],
       vacationDestination = [],
-      gender
+      gender,
     } = currentUser;
 
-    // Build dynamic filters (skip empty arrays)
+    // Build dynamic filters
     const interestFilters = [];
 
     if (hobbies.length) interestFilters.push({ hobbies: { $in: hobbies } });
@@ -45,25 +45,28 @@ export const getMutualMatches = async (req, res) => {
     if (tvShows.length) interestFilters.push({ tvShows: { $in: tvShows } });
     if (vacationDestination.length) interestFilters.push({ vacationDestination: { $in: vacationDestination } });
 
+    // Fetch matches
     const mutualMatches = await RegisterModel.find({
       _id: { $ne: userId },
-
-      // Opposite gender
       gender: gender === "Male" ? "Female" : "Male",
-
-      // Only apply OR filter if at least one matching category exists
-      ...(interestFilters.length > 0 && { $or: interestFilters })
+      ...(interestFilters.length > 0 && { $or: interestFilters }),
     }).select(`
-      _id firstName lastName dateOfBirth height religion caste company
+      _id id firstName lastName dateOfBirth height religion caste company
       annualIncome highestEducation currentCity state motherTongue
       gender profileImage updatedAt createdAt designation
     `);
 
+    // FIX → Ensure VM ID exists: fallback to _id
+    const finalMatches = mutualMatches.map((u) => ({
+      ...u._doc,
+      id: u.id || u._id.toString(),   // ★ ADD THIS → VM ID FIXED
+    }));
+
     res.status(200).json({
       success: true,
-      count: mutualMatches.length,
+      count: finalMatches.length,
       message: "Mutual matches fetched successfully",
-      mutualMatches,
+      mutualMatches: finalMatches,
     });
 
   } catch (error) {
@@ -75,4 +78,5 @@ export const getMutualMatches = async (req, res) => {
     });
   }
 };
+
 
