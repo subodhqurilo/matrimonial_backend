@@ -7,6 +7,10 @@ import { sendOtpToPhone } from "../utils/sendOtp.js";
 import User from "../modal/User.js"; // adjust path if needed
 import cloudinary from "cloudinary";
 import { authenticateUser } from "../middlewares/authMiddleware.js";
+import { sendEmailOTP } from "../utils/sendEmailOtp.js";
+import AdminOtp from "../modal/AdminOtpModel.js";
+
+
 
 const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key";
 
@@ -416,6 +420,170 @@ const token = jwt.sign({ userId: user._id }, JWT_SECRET);
     res.status(500).json({ message: "Login failed", error: err.message });
   }
 };
+
+
+
+
+
+
+
+
+export const adminForgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email)
+      return res.status(400).json({ success: false, message: "Email is required" });
+
+    const adminUser = await admin.findOne({ email });
+    if (!adminUser)
+      return res.status(404).json({ success: false, message: "Admin not found" });
+
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
+
+    await AdminOtp.deleteMany({ email });
+
+    await AdminOtp.create({ email, otp });
+
+    const result = await sendEmailOTP(email, otp);
+
+    if (!result.success) {
+      return res.status(500).json({
+        success: false,
+        message: "Failed to send OTP",
+        error: result.error,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "OTP sent successfully",
+      otp,   // ⭐⭐ OTP added in response
+    });
+
+  } catch (err) {
+    console.error("SERVER ERROR:", err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: err.message,
+    });
+  }
+};
+
+
+
+
+
+
+
+// 2️⃣ VERIFY OTP
+export const adminVerifyOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and OTP are required",
+      });
+    }
+
+    // ✔ Correct Model + Correct Field
+    const otpRecord = await AdminOtp.findOne({ email }).sort({ createdAt: -1 });
+
+    if (!otpRecord || otpRecord.otp !== otp) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired OTP",
+      });
+    }
+
+    // ✔ Delete only admin OTP entries
+    await AdminOtp.deleteMany({ email });
+
+    return res.status(200).json({
+      success: true,
+      message: "OTP verified successfully",
+    });
+
+  } catch (error) {
+    console.error("Verify OTP Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to verify OTP",
+      error: error.message,
+    });
+  }
+};
+
+
+
+
+// 3️⃣ RESET PASSWORD
+export const adminResetPassword = async (req, res) => {
+  try {
+    const { email, newPassword, confirmPassword } = req.body;
+
+    if (!email || !newPassword || !confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Required fields missing",
+      });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Passwords do not match",
+      });
+    }
+
+    // ✔ Check admin exists
+    const adminUser = await admin.findOne({ email });
+    if (!adminUser) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found",
+      });
+    }
+
+    // ✔ Check OTP was verified
+    const otpRecord = await AdminOtp.findOne({ email });
+
+    if (otpRecord) {
+      return res.status(400).json({
+        success: false,
+        message: "Please verify OTP before resetting password",
+      });
+    }
+
+    // ✔ Hash new password
+    const hashed = await bcrypt.hash(newPassword, 10);
+
+    adminUser.password = hashed;
+    await adminUser.save();
+
+    // ✔ Cleanup: Delete OTP entries for this email if any
+    await AdminOtp.deleteMany({ email });
+
+    return res.status(200).json({
+      success: true,
+      message: "Password reset successfully",
+      adminId: adminUser._id,
+    });
+
+  } catch (error) {
+    console.error("Reset Password Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to reset password",
+      error: error.message,
+    });
+  }
+};
+
 
 /* ------------------- Aadhaar Verification ------------------- */
 export const aadhaarVerification = async (req, res) => {

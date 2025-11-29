@@ -10,7 +10,11 @@ import {
   requestOtp,
   requestLoginOtp,
   getCurrentUser,
-  verifyOtpAndRegister, // OTP-based registration
+  verifyOtpAndRegister, 
+    adminForgotPassword,
+  adminVerifyOtp,
+  adminResetPassword,
+
 } from "../controller/authController.js";
 
 
@@ -44,6 +48,9 @@ authRoute.post("/login", login);
 /* ------------------- Admin Routes ------------------- */
 authRoute.post("/admin/signup", adminSignup);
 authRoute.post("/admin/login", adminLogin);
+authRoute.post("/admin/forgot-password", adminForgotPassword);
+authRoute.post("/admin/verify-otp", adminVerifyOtp);
+authRoute.post("/admin/reset-password", adminResetPassword);
 
 /* ------------------- Aadhaar Verification ------------------- */
 authRoute.get("/aadhaar-status", authenticateUser, aadhaarVerification);
