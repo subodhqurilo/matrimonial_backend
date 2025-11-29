@@ -441,24 +441,26 @@ export const adminForgotPassword = async (req, res) => {
 
     const otp = Math.floor(1000 + Math.random() * 9000).toString();
 
+    // Clear previous OTPs
     await AdminOtp.deleteMany({ email });
 
+    // Save new OTP
     await AdminOtp.create({ email, otp });
 
-    const result = await sendEmailOTP(email, otp);
+    // Send OTP via BREVO (axios version)
+    const sent = await sendEmailOTP(email, otp);
 
-    if (!result.success) {
+    if (!sent) {
       return res.status(500).json({
         success: false,
-        message: "Failed to send OTP",
-        error: result.error,
+        message: "Failed to send OTP email. Try again.",
       });
     }
 
     return res.status(200).json({
       success: true,
       message: "OTP sent successfully",
-      otp,   // ⭐⭐ OTP added in response
+      otp, // remove in production
     });
 
   } catch (err) {
@@ -478,6 +480,7 @@ export const adminForgotPassword = async (req, res) => {
 
 
 
+
 // 2️⃣ VERIFY OTP
 export const adminVerifyOtp = async (req, res) => {
   try {
@@ -490,7 +493,6 @@ export const adminVerifyOtp = async (req, res) => {
       });
     }
 
-    // ✔ Correct Model + Correct Field
     const otpRecord = await AdminOtp.findOne({ email }).sort({ createdAt: -1 });
 
     if (!otpRecord || otpRecord.otp !== otp) {
@@ -500,7 +502,7 @@ export const adminVerifyOtp = async (req, res) => {
       });
     }
 
-    // ✔ Delete only admin OTP entries
+    // OTP Verified → delete record
     await AdminOtp.deleteMany({ email });
 
     return res.status(200).json({
@@ -517,6 +519,7 @@ export const adminVerifyOtp = async (req, res) => {
     });
   }
 };
+
 
 
 
@@ -540,7 +543,7 @@ export const adminResetPassword = async (req, res) => {
       });
     }
 
-    // ✔ Check admin exists
+    // Check admin exists
     const adminUser = await admin.findOne({ email });
     if (!adminUser) {
       return res.status(404).json({
@@ -549,7 +552,7 @@ export const adminResetPassword = async (req, res) => {
       });
     }
 
-    // ✔ Check OTP was verified
+    // OTP must be verified → means "no OTP record should exist"
     const otpRecord = await AdminOtp.findOne({ email });
 
     if (otpRecord) {
@@ -559,14 +562,11 @@ export const adminResetPassword = async (req, res) => {
       });
     }
 
-    // ✔ Hash new password
+    // Hash new password
     const hashed = await bcrypt.hash(newPassword, 10);
 
     adminUser.password = hashed;
     await adminUser.save();
-
-    // ✔ Cleanup: Delete OTP entries for this email if any
-    await AdminOtp.deleteMany({ email });
 
     return res.status(200).json({
       success: true,
@@ -583,6 +583,7 @@ export const adminResetPassword = async (req, res) => {
     });
   }
 };
+
 
 
 /* ------------------- Aadhaar Verification ------------------- */

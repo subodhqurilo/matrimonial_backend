@@ -1,32 +1,33 @@
-import SibApiV3Sdk from "sib-api-v3-sdk";
+import nodemailer from "nodemailer";
 
 export const sendEmailOTP = async (email, otp) => {
   try {
-    const defaultClient = SibApiV3Sdk.ApiClient.instance;
-
-    // ✔ Correct API Key
-    defaultClient.authentications["api-key"].apiKey =
-      process.env.BREVO_API_KEY;
-
-    const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
-
-    const sendSmtpEmail = {
-      // ✔ Replace with VERIFIED sender email
-      sender: { 
-        name: "VarVadhu",
-        email: "subodh.qurilo@gmail.com" 
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS, // app password
       },
+    });
 
-      to: [{ email }],
-      subject: "Your OTP Code",
-      htmlContent: `<p>Your OTP is <b>${otp}</b></p>`,
-    };
+    const info = await transporter.sendMail({
+      from: `ViaFarm <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: "Your ViaFarm OTP",
+      html: `
+        <div style="font-family:Arial;">
+          <h2>Your OTP</h2>
+          <p>Your OTP is <b>${otp}</b></p>
+          <p>Valid for 5 minutes.</p>
+        </div>
+      `,
+    });
 
-    const result = await apiInstance.sendTransacEmail(sendSmtpEmail);
+    console.log("OTP Email sent:", info.messageId);
+    return true;
 
-    return { success: true, data: result };
   } catch (error) {
-    console.log("❌ Brevo Error:", error.response?.body || error);
-    return { success: false, error };
+    console.error("Email send failed:", error);
+    return false;
   }
 };

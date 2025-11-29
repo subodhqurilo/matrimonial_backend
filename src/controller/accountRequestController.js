@@ -1,4 +1,6 @@
 import moment from "moment";
+import NotificationModel from "../modal/Notification.js";
+import { sendExpoPush } from "../utils/expoPush.js"; // expo push function
 
 import { AccountRequestModel } from "../modal/accountRequestModel.js";
 
@@ -117,42 +119,41 @@ export const updateAccountRequestStatus = async (req, res) => {
   const userId = req.userId; // Logged-in user (receiver)
   const { requestId, status } = req.body;
 
-  if (!['accepted', 'rejected'].includes(status)) {
+  if (!["accepted", "rejected"].includes(status)) {
     return res.status(400).json({ success: false, message: "Invalid status" });
   }
 
   try {
-    // 🔍 Find the request where YOU are the receiver
+    // 🔍 1. Find the request (User must be receiver)
     const request = await AccountRequestModel.findOne({
       _id: requestId,
-      receiverId: userId
+      receiverId: userId,
     });
 
     if (!request) {
       return res.status(404).json({
         success: false,
-        message: "Request not found or you are not authorized"
+        message: "Request not found or you are not authorized",
       });
     }
 
-    // ❗ If already accepted/rejected, prevent repeat actions
+    // ❗ If already accepted/rejected
     if (request.status === status) {
       return res.status(200).json({
         success: true,
         message: `Request already ${status}`,
-        request
+        request,
       });
     }
 
-    // ✔ Update request status
+    // ✔ 2. Update main request
     request.status = status;
     await request.save();
 
-    // 🔁 OPTIONAL: Update reverse request for consistency
-    // Example: If A accepts B, B also sees accepted
+    // 🔁 3. Update reverse request (optional but good)
     const reverseRequest = await AccountRequestModel.findOne({
       requesterId: userId,
-      receiverId: request.requesterId
+      receiverId: request.requesterId,
     });
 
     if (reverseRequest) {
@@ -160,21 +161,64 @@ export const updateAccountRequestStatus = async (req, res) => {
       await reverseRequest.save();
     }
 
+    // ----------------------------
+    // 🔔 4. STORE NOTIFICATION (BOTH USERS)
+    // ----------------------------
+
+    // Notification text
+    const notifyMsg =
+      status === "accepted"
+        ? "Your request has been accepted."
+        : "Your request has been rejected.";
+
+    // A → B : requester → receiver
+    const requesterId = request.requesterId;
+    const receiverId = request.receiverId; // logged in
+
+    // Notification for Requester
+    await NotificationModel.create({
+      userId: requesterId,
+      message: notifyMsg,
+      type: "request-update",
+      fromUser: userId,
+    });
+
+    // Notification for Receiver also
+    await NotificationModel.create({
+      userId: receiverId,
+      message: `You have ${status} the request.`,
+      type: "request-update",
+      fromUser: requesterId,
+    });
+
+    // ----------------------------
+    // 📱 5. SEND EXPO PUSH ONLY TO REQUESTER
+    // ----------------------------
+    if (requesterId.expoToken) {
+      await sendExpoPush({
+        token: requesterId.expoToken,
+        title: "Request Update",
+        body: notifyMsg,
+      });
+    }
+
+    // ----------------------------
+
     return res.status(200).json({
       success: true,
       message: `Request ${status} successfully`,
-      request
+      request,
     });
-
   } catch (error) {
     console.error("❌ updateAccountRequestStatus error:", error);
     return res.status(500).json({
       success: false,
       message: "Server error",
-      error: error.message
+      error: error.message,
     });
   }
 };
+
 
 
 
