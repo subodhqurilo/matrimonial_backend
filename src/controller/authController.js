@@ -9,6 +9,8 @@ import cloudinary from "cloudinary";
 import { authenticateUser } from "../middlewares/authMiddleware.js";
 import { sendEmailOTP } from "../utils/sendEmailOtp.js";
 import AdminOtp from "../modal/AdminOtpModel.js";
+import Admin from "../modal/adminModal.js";
+
 
 
 
@@ -428,60 +430,58 @@ const token = jwt.sign({ userId: user._id }, JWT_SECRET);
 
 
 
+
+
 export const adminForgotPassword = async (req, res) => {
   try {
-    const { mobile } = req.body;
+    const { phone } = req.body;
 
-    if (!mobile) {
+    if (!phone) {
       return res.status(400).json({
         success: false,
-        message: "Mobile number is required",
+        message: "Phone number is required",
       });
     }
 
-    const adminUser = await admin.findOne({ mobile });
+    // FIND ADMIN USING PHONE FIELD
+    const adminUser = await Admin.findOne({ phone });
 
     if (!adminUser) {
       return res.status(404).json({
         success: false,
-        message: "Admin not found with this mobile number",
+        message: "Admin not found with this phone number",
       });
     }
 
-    // Generate OTP
     const otp = Math.floor(1000 + Math.random() * 9000).toString();
 
-    // Delete old OTPs
-    await AdminOtp.deleteMany({ mobile });
+    await OtpModel.deleteMany({ mobile: phone });
 
-    // Save new OTP
-    await AdminOtp.create({ mobile, otp });
+    await OtpModel.create({
+      firstName: adminUser.name,
+      email: adminUser.email,
+      mobile: phone,
+      otp,
+    });
 
-    // Send SMS OTP
-    const sent = await sendOtpToPhone(mobile, otp);
-
-    if (!sent) {
-      return res.status(500).json({
-        success: false,
-        message: "Failed to send OTP on mobile. Try again.",
-      });
-    }
+    await sendOtpToPhone(phone, otp);
 
     return res.status(200).json({
       success: true,
-      message: "OTP sent successfully to your mobile number",
-      otp, // remove in production!
+      message: "OTP sent successfully",
+      otp,
     });
 
-  } catch (err) {
-    console.error("SERVER ERROR:", err);
+  } catch (error) {
+    console.error("Forgot Password Error:", error);
     return res.status(500).json({
       success: false,
       message: "Server error",
-      error: err.message,
+      error: error.message,
     });
   }
 };
+
 
 
 
@@ -494,17 +494,16 @@ export const adminForgotPassword = async (req, res) => {
 // 2️⃣ VERIFY OTP
 export const adminVerifyOtp = async (req, res) => {
   try {
-    const { mobile, otp } = req.body;
+    const { phone, otp } = req.body;
 
-    if (!mobile || !otp) {
+    if (!phone || !otp) {
       return res.status(400).json({
         success: false,
-        message: "Mobile number and OTP are required",
+        message: "Phone and OTP are required",
       });
     }
 
-    // Find latest OTP record for this mobile
-    const otpRecord = await AdminOtp.findOne({ mobile }).sort({ createdAt: -1 });
+    const otpRecord = await OtpModel.findOne({ mobile: phone }).sort({ createdAt: -1 });
 
     if (!otpRecord || otpRecord.otp !== otp) {
       return res.status(400).json({
@@ -513,8 +512,7 @@ export const adminVerifyOtp = async (req, res) => {
       });
     }
 
-    // OTP Verified → delete record
-    await AdminOtp.deleteMany({ mobile });
+    await OtpModel.deleteMany({ mobile: phone });
 
     return res.status(200).json({
       success: true,
@@ -522,10 +520,10 @@ export const adminVerifyOtp = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Verify OTP Error:", error);
+    console.error("OTP Verify Error:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to verify OTP",
+      message: "Server error",
       error: error.message,
     });
   }
@@ -536,15 +534,17 @@ export const adminVerifyOtp = async (req, res) => {
 
 
 
+
+
 // 3️⃣ RESET PASSWORD
 export const adminResetPassword = async (req, res) => {
   try {
-    const { mobile, newPassword, confirmPassword } = req.body;
+    const { phone, newPassword, confirmPassword } = req.body;
 
-    if (!mobile || !newPassword || !confirmPassword) {
+    if (!phone || !newPassword || !confirmPassword) {
       return res.status(400).json({
         success: false,
-        message: "Required fields missing",
+        message: "All fields are required",
       });
     }
 
@@ -555,19 +555,17 @@ export const adminResetPassword = async (req, res) => {
       });
     }
 
-    // Check admin exists using mobile number
-    const adminUser = await admin.findOne({ mobile });
+    const adminUser = await Admin.findOne({ phone });
 
     if (!adminUser) {
       return res.status(404).json({
         success: false,
-        message: "Admin not found with this mobile number",
+        message: "Admin not found",
       });
     }
 
-    // OTP must be verified → means no OTP record should exist
-    const otpRecord = await AdminOtp.findOne({ mobile });
-
+    // If OTP exists → not verified yet
+    const otpRecord = await OtpModel.findOne({ mobile: phone });
     if (otpRecord) {
       return res.status(400).json({
         success: false,
@@ -575,10 +573,7 @@ export const adminResetPassword = async (req, res) => {
       });
     }
 
-    // Hash new password
-    const hashed = await bcrypt.hash(newPassword, 10);
-
-    adminUser.password = hashed;
+    adminUser.password = await bcrypt.hash(newPassword, 10);
     await adminUser.save();
 
     return res.status(200).json({
@@ -588,14 +583,16 @@ export const adminResetPassword = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Reset Password Error:", error);
+    console.error("Reset Error:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to reset password",
+      message: "Server error",
       error: error.message,
     });
   }
 };
+
+
 
 
 
