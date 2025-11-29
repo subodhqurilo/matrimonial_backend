@@ -430,42 +430,51 @@ const token = jwt.sign({ userId: user._id }, JWT_SECRET);
 
 export const adminForgotPassword = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { mobile } = req.body;
 
-    if (!email)
-      return res.status(400).json({ success: false, message: "Email is required" });
+    if (!mobile) {
+      return res.status(400).json({
+        success: false,
+        message: "Mobile number is required",
+      });
+    }
 
-    const adminUser = await admin.findOne({ email });
-    if (!adminUser)
-      return res.status(404).json({ success: false, message: "Admin not found" });
+    const adminUser = await admin.findOne({ mobile });
 
+    if (!adminUser) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found with this mobile number",
+      });
+    }
+
+    // Generate OTP
     const otp = Math.floor(1000 + Math.random() * 9000).toString();
 
-    // Clear previous OTPs
-    await AdminOtp.deleteMany({ email });
+    // Delete old OTPs
+    await AdminOtp.deleteMany({ mobile });
 
     // Save new OTP
-    await AdminOtp.create({ email, otp });
+    await AdminOtp.create({ mobile, otp });
 
-    // Send OTP via BREVO (axios version)
-    const sent = await sendEmailOTP(email, otp);
+    // Send SMS OTP
+    const sent = await sendOtpToPhone(mobile, otp);
 
     if (!sent) {
       return res.status(500).json({
         success: false,
-        message: "Failed to send OTP email. Try again.",
+        message: "Failed to send OTP on mobile. Try again.",
       });
     }
 
     return res.status(200).json({
       success: true,
-      message: "OTP sent successfully",
-      otp, // remove in production
+      message: "OTP sent successfully to your mobile number",
+      otp, // remove in production!
     });
 
   } catch (err) {
     console.error("SERVER ERROR:", err);
-
     return res.status(500).json({
       success: false,
       message: "Server error",
@@ -481,19 +490,21 @@ export const adminForgotPassword = async (req, res) => {
 
 
 
+
 // 2️⃣ VERIFY OTP
 export const adminVerifyOtp = async (req, res) => {
   try {
-    const { email, otp } = req.body;
+    const { mobile, otp } = req.body;
 
-    if (!email || !otp) {
+    if (!mobile || !otp) {
       return res.status(400).json({
         success: false,
-        message: "Email and OTP are required",
+        message: "Mobile number and OTP are required",
       });
     }
 
-    const otpRecord = await AdminOtp.findOne({ email }).sort({ createdAt: -1 });
+    // Find latest OTP record for this mobile
+    const otpRecord = await AdminOtp.findOne({ mobile }).sort({ createdAt: -1 });
 
     if (!otpRecord || otpRecord.otp !== otp) {
       return res.status(400).json({
@@ -503,7 +514,7 @@ export const adminVerifyOtp = async (req, res) => {
     }
 
     // OTP Verified → delete record
-    await AdminOtp.deleteMany({ email });
+    await AdminOtp.deleteMany({ mobile });
 
     return res.status(200).json({
       success: true,
@@ -524,12 +535,13 @@ export const adminVerifyOtp = async (req, res) => {
 
 
 
+
 // 3️⃣ RESET PASSWORD
 export const adminResetPassword = async (req, res) => {
   try {
-    const { email, newPassword, confirmPassword } = req.body;
+    const { mobile, newPassword, confirmPassword } = req.body;
 
-    if (!email || !newPassword || !confirmPassword) {
+    if (!mobile || !newPassword || !confirmPassword) {
       return res.status(400).json({
         success: false,
         message: "Required fields missing",
@@ -543,17 +555,18 @@ export const adminResetPassword = async (req, res) => {
       });
     }
 
-    // Check admin exists
-    const adminUser = await admin.findOne({ email });
+    // Check admin exists using mobile number
+    const adminUser = await admin.findOne({ mobile });
+
     if (!adminUser) {
       return res.status(404).json({
         success: false,
-        message: "Admin not found",
+        message: "Admin not found with this mobile number",
       });
     }
 
-    // OTP must be verified → means "no OTP record should exist"
-    const otpRecord = await AdminOtp.findOne({ email });
+    // OTP must be verified → means no OTP record should exist
+    const otpRecord = await AdminOtp.findOne({ mobile });
 
     if (otpRecord) {
       return res.status(400).json({
@@ -583,6 +596,7 @@ export const adminResetPassword = async (req, res) => {
     });
   }
 };
+
 
 
 
