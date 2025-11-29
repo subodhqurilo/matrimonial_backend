@@ -407,21 +407,55 @@ export const adminSignup = async (req, res) => {
 
 export const adminLogin = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const user = await admin.findOne({ email });
-    if (!user) return res.status(404).json({ message: "Admin not found" });
+    const { email, phone, password } = req.body;
 
+    if (!password || (!email && !phone)) {
+      return res.status(400).json({
+        message: "Email/Phone and password are required",
+      });
+    }
+
+    // FIND ADMIN USING EMAIL OR PHONE
+    const user = await Admin.findOne({
+      $or: [{ email }, { phone }]
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        message: "Admin not found",
+      });
+    }
+
+    // CHECK PASSWORD
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
+    if (!isMatch) {
+      return res.status(400).json({
+        message: "Invalid credentials",
+      });
+    }
 
-const token = jwt.sign({ userId: user._id }, JWT_SECRET);
+    const token = jwt.sign({ userId: user._id }, JWT_SECRET);
 
+    return res.status(200).json({
+      status: "success",
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone
+      }
+    });
 
-    res.status(200).json({ status: "success", token, user: { id: user._id, name: user.name, email: user.email } });
   } catch (err) {
-    res.status(500).json({ message: "Login failed", error: err.message });
+    console.error("Login Error:", err);
+    return res.status(500).json({
+      message: "Login failed",
+      error: err.message,
+    });
   }
 };
+
 
 
 
