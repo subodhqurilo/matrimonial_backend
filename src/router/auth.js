@@ -13,8 +13,8 @@ import {
   verifyOtpAndRegister, 
     adminForgotPassword,
   adminVerifyOtp,
-  adminResetPassword,
-
+  
+adminResetPassword 
 } from "../controller/authController.js";
 
 
