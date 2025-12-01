@@ -145,13 +145,32 @@ export const getSignupGender = async (req, res) => {
   try {
     const now = moment().tz("Asia/Kolkata");
 
-    const currentMonthStart = now.clone().startOf("month").toDate();
-    const nextMonthStart = now.clone().startOf("month").add(1, "month").toDate();
+    // 🟦 READ MONTH & YEAR FROM QUERY
+    const selectedMonth = Number(req.query.month) || now.month() + 1;
+    const selectedYear = Number(req.query.year) || now.year();
 
-    const previousMonthStart = now.clone().subtract(1, "month").startOf("month").toDate();
-    const previousMonthEnd = now.clone().startOf("month").toDate();
+    // 🟩 Selected month start & end
+    const monthStart = moment()
+      .tz("Asia/Kolkata")
+      .year(selectedYear)
+      .month(selectedMonth - 1)
+      .startOf("month")
+      .toDate();
 
-    const sevenDaysAgo = now.clone().subtract(7, "days").toDate();
+    const monthEnd = moment()
+      .tz("Asia/Kolkata")
+      .year(selectedYear)
+      .month(selectedMonth - 1)
+      .endOf("month")
+      .toDate();
+
+    // 🔵 Previous month start & end
+    const prevMonthStart = moment(monthStart)
+      .subtract(1, "month")
+      .toDate();
+
+    const prevMonthEnd = moment(monthStart)
+      .toDate();
 
     /* --------------------------------------------------------
        1) GENDER COUNTS
@@ -166,7 +185,6 @@ export const getSignupGender = async (req, res) => {
     ]);
 
     const genderCounts = { Male: 0, Female: 0, Others: 0 };
-
     genderAgg.forEach(g => {
       if (g._id === "Male") genderCounts.Male = g.count;
       else if (g._id === "Female") genderCounts.Female = g.count;
@@ -174,8 +192,10 @@ export const getSignupGender = async (req, res) => {
     });
 
     /* --------------------------------------------------------
-       2) MATCH STATS
+       2) MATCH STATS 
     -------------------------------------------------------- */
+    const sevenDaysAgo = moment().subtract(7, "days").toDate();
+
     const users = await RegisterModel.find(
       {},
       { createdAt: 1, adminApprovel: 1, isMobileVerified: 1 }
@@ -198,12 +218,12 @@ export const getSignupGender = async (req, res) => {
     });
 
     /* --------------------------------------------------------
-       3) MONTHLY SIGN-IN GRAPH (Using lastLogin)
+       3) MONTHLY SIGN-IN GRAPH (Selected Month)
     -------------------------------------------------------- */
     const monthAgg = await RegisterModel.aggregate([
       {
         $match: {
-          lastLogin: { $gte: previousMonthStart, $lt: nextMonthStart }
+          lastLogin: { $gte: prevMonthStart, $lt: monthEnd }
         }
       },
       {
@@ -220,11 +240,11 @@ export const getSignupGender = async (req, res) => {
       }
     ]);
 
-    const daysInCurrent = now.daysInMonth();
-
+    const daysInMonth = moment(monthStart).daysInMonth();
     const signInData = [];
 
-    for (let day = 1; day <= daysInCurrent; day++) {
+    // Initialize days
+    for (let day = 1; day <= daysInMonth; day++) {
       signInData.push({
         day: String(day).padStart(2, "0"),
         currentMonth: 0,
@@ -236,41 +256,24 @@ export const getSignupGender = async (req, res) => {
       const dayKey = String(entry._id.day).padStart(2, "0");
       const month = entry._id.month;
 
-      // Current month
-      if (month === now.month() + 1) {
+      if (month === selectedMonth) {
         const d = signInData.find(v => v.day === dayKey);
         if (d) d.currentMonth += entry.count;
       }
 
-      // Previous month
-      if (month === now.clone().subtract(1, "month").month() + 1) {
+      if (month === selectedMonth - 1 || (selectedMonth === 1 && month === 12)) {
         const d = signInData.find(v => v.day === dayKey);
         if (d) d.previousMonth += entry.count;
       }
     });
 
     /* --------------------------------------------------------
-       4) GROWTH %
-    -------------------------------------------------------- */
-    const totalCurrentMonthSignIns = signInData.reduce((s, v) => s + v.currentMonth, 0);
-    const totalPreviousMonthSignIns = signInData.reduce((s, v) => s + v.previousMonth, 0);
-
-    let percentGrowth = 0;
-
-    if (totalPreviousMonthSignIns === 0) {
-      percentGrowth = totalCurrentMonthSignIns > 0 ? 100 : 0;
-    } else {
-      percentGrowth =
-        ((totalCurrentMonthSignIns - totalPreviousMonthSignIns) /
-          totalPreviousMonthSignIns) * 100;
-    }
-
-    percentGrowth = Math.round(percentGrowth);
-
-    /* --------------------------------------------------------
-       FINAL RESPONSE
+       4) FINAL RESPONSE
     -------------------------------------------------------- */
     res.json({
+      selectedMonth,
+      selectedYear,
+
       genderData: [
         { name: "Male", value: genderCounts.Male },
         { name: "Female", value: genderCounts.Female }
@@ -283,10 +286,7 @@ export const getSignupGender = async (req, res) => {
         { name: "Inactive", value: matchStats.inactive },
       ],
 
-      signInData,
-      totalCurrentMonthSignIns,
-      totalPreviousMonthSignIns,
-      percentGrowth,
+      signInData
     });
 
   } catch (err) {
@@ -294,6 +294,7 @@ export const getSignupGender = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch analytics data" });
   }
 };
+
 
 
 
