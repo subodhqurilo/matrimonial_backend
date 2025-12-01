@@ -145,42 +145,76 @@ export const getSignupGender = async (req, res) => {
   try {
     const now = moment().tz("Asia/Kolkata");
 
-    // 🟦 READ MONTH & YEAR FROM QUERY
-    const selectedMonth = Number(req.query.month) || now.month() + 1;
-    const selectedYear = Number(req.query.year) || now.year();
+    /* ----------------------------------------
+        0️⃣ MONTH NAME → NUMBER CONVERTER
+    ---------------------------------------- */
+    const monthMap = {
+      january: 1,
+      february: 2,
+      march: 3,
+      april: 4,
+      may: 5,
+      june: 6,
+      july: 7,
+      august: 8,
+      september: 9,
+      october: 10,
+      november: 11,
+      december: 12
+    };
 
-    // 🟩 Selected month start & end
-    const monthStart = moment()
-      .tz("Asia/Kolkata")
-      .year(selectedYear)
+    let monthQuery = req.query.month; // user input (december / dec / 12)
+    let yearQuery = req.query.year || now.year();
+
+    let selectedMonth;
+
+    // If month is number → use directly
+    if (!monthQuery) {
+      selectedMonth = now.month() + 1;
+    } else if (!isNaN(monthQuery)) {
+      selectedMonth = Number(monthQuery);
+    } else {
+      // If month is string → convert to number
+      const key = monthQuery.toLowerCase().slice(0, 3); // first 3 chars
+      const found = Object.keys(monthMap).find(m => m.startsWith(key));
+      selectedMonth = monthMap[found];
+    }
+
+    if (!selectedMonth) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid month format. Example: ?month=december or ?month=12"
+      });
+    }
+
+    // Selected Month Dates
+    const selectedMonthStart = moment()
+      .year(yearQuery)
       .month(selectedMonth - 1)
       .startOf("month")
       .toDate();
 
-    const monthEnd = moment()
-      .tz("Asia/Kolkata")
-      .year(selectedYear)
+    const selectedMonthEnd = moment()
+      .year(yearQuery)
       .month(selectedMonth - 1)
       .endOf("month")
       .toDate();
 
-    // 🔵 Previous month start & end
-    const prevMonthStart = moment(monthStart)
+    // Previous Month
+    const previousMonthStart = moment(selectedMonthStart)
       .subtract(1, "month")
+      .startOf("month")
       .toDate();
 
-    const prevMonthEnd = moment(monthStart)
+    const previousMonthEnd = moment(selectedMonthStart)
       .toDate();
 
-    /* --------------------------------------------------------
-       1) GENDER COUNTS
-    -------------------------------------------------------- */
+    /* -----------------------------------------
+       1️⃣ GENDER COUNTS
+    ----------------------------------------- */
     const genderAgg = await RegisterModel.aggregate([
       {
-        $group: {
-          _id: "$gender",
-          count: { $sum: 1 }
-        }
+        $group: { _id: "$gender", count: { $sum: 1 } }
       }
     ]);
 
@@ -191,9 +225,9 @@ export const getSignupGender = async (req, res) => {
       else genderCounts.Others += g.count;
     });
 
-    /* --------------------------------------------------------
-       2) MATCH STATS 
-    -------------------------------------------------------- */
+    /* -----------------------------------------
+       2️⃣ MATCH STATS
+    ----------------------------------------- */
     const sevenDaysAgo = moment().subtract(7, "days").toDate();
 
     const users = await RegisterModel.find(
@@ -209,27 +243,25 @@ export const getSignupGender = async (req, res) => {
     };
 
     users.forEach(user => {
-      const createdAt = new Date(user.createdAt);
-
       if (user.adminApprovel === "approved") matchStats.matched++;
       else if (!user.isMobileVerified) matchStats.inactive++;
-      else if (createdAt >= sevenDaysAgo) matchStats.newlyRegistered++;
+      else if (user.createdAt >= sevenDaysAgo) matchStats.newlyRegistered++;
       else matchStats.stillLooking++;
     });
 
-    /* --------------------------------------------------------
-       3) MONTHLY SIGN-IN GRAPH (Selected Month)
-    -------------------------------------------------------- */
+    /* -----------------------------------------
+       3️⃣ MONTH GRAPH (Selected Month)
+    ----------------------------------------- */
     const monthAgg = await RegisterModel.aggregate([
       {
         $match: {
-          lastLogin: { $gte: prevMonthStart, $lt: monthEnd }
+          createdAt: { $gte: previousMonthStart, $lte: selectedMonthEnd }
         }
       },
       {
         $project: {
-          day: { $dayOfMonth: "$lastLogin" },
-          month: { $month: "$lastLogin" }
+          day: { $dayOfMonth: "$createdAt" },
+          month: { $month: "$createdAt" }
         }
       },
       {
@@ -240,10 +272,10 @@ export const getSignupGender = async (req, res) => {
       }
     ]);
 
-    const daysInMonth = moment(monthStart).daysInMonth();
+    const daysInMonth = moment(selectedMonthStart).daysInMonth();
+
     const signInData = [];
 
-    // Initialize days
     for (let day = 1; day <= daysInMonth; day++) {
       signInData.push({
         day: String(day).padStart(2, "0"),
@@ -254,25 +286,43 @@ export const getSignupGender = async (req, res) => {
 
     monthAgg.forEach(entry => {
       const dayKey = String(entry._id.day).padStart(2, "0");
-      const month = entry._id.month;
 
-      if (month === selectedMonth) {
+      if (entry._id.month === selectedMonth) {
         const d = signInData.find(v => v.day === dayKey);
-        if (d) d.currentMonth += entry.count;
+        d.currentMonth += entry.count;
       }
 
-      if (month === selectedMonth - 1 || (selectedMonth === 1 && month === 12)) {
+      if (
+        entry._id.month === selectedMonth - 1 ||
+        (selectedMonth === 1 && entry._id.month === 12)
+      ) {
         const d = signInData.find(v => v.day === dayKey);
-        if (d) d.previousMonth += entry.count;
+        d.previousMonth += entry.count;
       }
     });
 
-    /* --------------------------------------------------------
-       4) FINAL RESPONSE
-    -------------------------------------------------------- */
+    /* -----------------------------------------
+       4️⃣ TOTALS & GROWTH
+    ----------------------------------------- */
+    const totalCurrentMonthSignIns = signInData.reduce((a, b) => a + b.currentMonth, 0);
+    const totalPreviousMonthSignIns = signInData.reduce((a, b) => a + b.previousMonth, 0);
+
+    let percentGrowth = 0;
+
+    if (totalPreviousMonthSignIns > 0) {
+      percentGrowth =
+        ((totalCurrentMonthSignIns - totalPreviousMonthSignIns) /
+          totalPreviousMonthSignIns) *
+        100;
+    }
+
+    /* -----------------------------------------
+       FINAL RESPONSE
+    ----------------------------------------- */
     res.json({
+      selectedMonthName: moment().month(selectedMonth - 1).format("MMMM"),
       selectedMonth,
-      selectedYear,
+      selectedYear: yearQuery,
 
       genderData: [
         { name: "Male", value: genderCounts.Male },
@@ -283,10 +333,13 @@ export const getSignupGender = async (req, res) => {
         { name: "Still Looking", value: matchStats.stillLooking },
         { name: "Successfully Matched", value: matchStats.matched },
         { name: "Newly Registered", value: matchStats.newlyRegistered },
-        { name: "Inactive", value: matchStats.inactive },
+        { name: "Inactive", value: matchStats.inactive }
       ],
 
-      signInData
+      signInData,
+      totalCurrentMonthSignIns,
+      totalPreviousMonthSignIns,
+      percentGrowth: Math.round(percentGrowth)
     });
 
   } catch (err) {
@@ -294,7 +347,6 @@ export const getSignupGender = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch analytics data" });
   }
 };
-
 
 
 
