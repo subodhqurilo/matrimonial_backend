@@ -541,6 +541,25 @@ lastActive: user.lastLogin
 
 
 
+// ===========================
+// SAFE VALUE: Avoid ZERO in Dashboard
+// ===========================
+
+
+// ===========================
+// SAFE PERCENTAGE CALCULATION
+// ===========================
+const percentageChange = (current, previous) => {
+  if (previous === 0) return 100;
+  return +(((current - previous) / previous) * 100).toFixed(1);
+};
+
+const direction = (change) => (change >= 0 ? "up" : "down");
+
+
+// ===========================
+// MAIN FUNCTION UPDATED
+// ===========================
 export const getUserManage = async (req, res) => {
   try {
     const now = moment().tz("Asia/Kolkata");
@@ -555,149 +574,131 @@ export const getUserManage = async (req, res) => {
     const lastWeekStart = now.clone().subtract(1, "week").startOf("isoWeek").toDate();
     const lastWeekEnd = now.clone().subtract(1, "week").endOf("isoWeek").toDate();
 
-    // --------------------------------------------
+
     // 1️⃣ TOTAL USERS (vs last week)
-    // --------------------------------------------
-    const [totalUsers, totalUsersLastWeek] = await Promise.all([
+    const [totalUsersRaw, totalUsersLastWeekRaw] = await Promise.all([
       RegisterModel.countDocuments(),
-      RegisterModel.countDocuments({
-        createdAt: { $lte: lastWeekEnd },
-      }),
+      RegisterModel.countDocuments({ createdAt: { $lte: lastWeekEnd } })
     ]);
 
-    // --------------------------------------------
-    // 2️⃣ NEW SIGNUPS (Today vs Yesterday)
-    // --------------------------------------------
-    const [newSignupsToday, newSignupsYesterday] = await Promise.all([
-      RegisterModel.countDocuments({
-        createdAt: { $gte: todayStart, $lte: todayEnd },
-      }),
-      RegisterModel.countDocuments({
-        createdAt: { $gte: yesterdayStart, $lte: yesterdayEnd },
-      }),
+    const totalUsers = safe(totalUsersRaw);
+    const totalUsersLastWeek = safe(totalUsersLastWeekRaw);
+
+
+    // 2️⃣ NEW SIGNUPS TODAY vs YESTERDAY
+    const [newTodayRaw, newYesterdayRaw] = await Promise.all([
+      RegisterModel.countDocuments({ createdAt: { $gte: todayStart, $lte: todayEnd } }),
+      RegisterModel.countDocuments({ createdAt: { $gte: yesterdayStart, $lte: yesterdayEnd } })
     ]);
 
-    // --------------------------------------------
-    // 3️⃣ PROFILE COMPLETED VS LAST WEEK
-    // --------------------------------------------
+    const newSignupsToday = safe(newTodayRaw);
+    const newSignupsYesterday = safe(newYesterdayRaw);
+
+
+    // 3️⃣ PROFILE COMPLETED & INCOMPLETE
     const profileCompletedQuery = {
       profileImage: { $ne: null },
       gender: { $ne: null },
-      currentCity: { $ne: null },
+      currentCity: { $ne: null }
     };
 
-    const profileCompleted = await RegisterModel.countDocuments(profileCompletedQuery);
-
-    const profileCompletedLastWeek = await RegisterModel.countDocuments({
+    const completedRaw = await RegisterModel.countDocuments(profileCompletedQuery);
+    const completedLastWeekRaw = await RegisterModel.countDocuments({
       ...profileCompletedQuery,
-      createdAt: { $lte: lastWeekEnd },
+      createdAt: { $lte: lastWeekEnd }
     });
 
-    const profileIncomplete = totalUsers - profileCompleted;
-    const profileIncompleteLastWeek = totalUsersLastWeek - profileCompletedLastWeek;
+    const profileCompleted = safe(completedRaw);
+    const profileCompletedLastWeek = safe(completedLastWeekRaw);
 
-    // --------------------------------------------
-    // 4️⃣ APPROVED & PENDING (vs last week)
-    // --------------------------------------------
-    const approvedProfilesCount = await RegisterModel.countDocuments({
+    const profileIncomplete = safe(totalUsersRaw - completedRaw);
+    const profileIncompleteLastWeek = safe(totalUsersLastWeekRaw - completedLastWeekRaw);
+
+
+    // 4️⃣ APPROVED & PENDING PROFILES
+    const approvedRaw = await RegisterModel.countDocuments({ adminApprovel: "approved" });
+    const approvedLastWeekRaw = await RegisterModel.countDocuments({
       adminApprovel: "approved",
+      createdAt: { $lte: lastWeekEnd }
     });
 
-    const approvedProfilesLastWeek = await RegisterModel.countDocuments({
-      adminApprovel: "approved",
-      createdAt: { $lte: lastWeekEnd },
-    });
+    const approvedProfilesCount = safe(approvedRaw);
+    const approvedProfilesLastWeek = safe(approvedLastWeekRaw);
 
-    const pendingProfilesCount = await RegisterModel.countDocuments({
+    const pendingRaw = await RegisterModel.countDocuments({ adminApprovel: "pending" });
+    const pendingLastWeekRaw = await RegisterModel.countDocuments({
       adminApprovel: "pending",
+      createdAt: { $lte: lastWeekEnd }
     });
 
-    const pendingProfilesLastWeek = await RegisterModel.countDocuments({
-      adminApprovel: "pending",
-      createdAt: { $lte: lastWeekEnd },
-    });
+    const pendingProfilesCount = safe(pendingRaw);
+    const pendingProfilesLastWeek = safe(pendingLastWeekRaw);
 
-    // --------------------------------------------
+
     // 5️⃣ FETCH PROFILE IMAGES
-    // --------------------------------------------
     const [approvedProfileImages, pendingProfileImages] = await Promise.all([
-      RegisterModel.find({
-        adminApprovel: "approved",
-        profileImage: { $ne: null },
-      })
+      RegisterModel.find({ adminApprovel: "approved", profileImage: { $ne: null } })
         .select("profileImage")
         .limit(4),
 
-      RegisterModel.find({
-        adminApprovel: "pending",
-        profileImage: { $ne: null },
-      })
+      RegisterModel.find({ adminApprovel: "pending", profileImage: { $ne: null } })
         .select("profileImage")
-        .limit(4),
+        .limit(4)
     ]);
 
-    const approvedImageUrls = approvedProfileImages.map((u) => u.profileImage);
-    const pendingImageUrls = pendingProfileImages.map((u) => u.profileImage);
+    const approvedImageUrls = approvedProfileImages.map(u => u.profileImage);
+    const pendingImageUrls = pendingProfileImages.map(u => u.profileImage);
 
-    // --------------------------------------------
-    // HELPERS
-    // --------------------------------------------
-    const percentageChange = (current, previous) => {
-      if (previous === 0) return 100;
-      return +(((current - previous) / previous) * 100).toFixed(1);
-    };
 
-    const direction = (change) => (change >= 0 ? "up" : "down");
-
-    // --------------------------------------------
-    // FINAL RESPONSE
-    // --------------------------------------------
+    // 📌 FINAL RESPONSE
     res.status(200).json({
       totalUsers: {
         count: totalUsers,
         change: percentageChange(totalUsers, totalUsersLastWeek),
-        trend: direction(percentageChange(totalUsers, totalUsersLastWeek)),
+        trend: direction(percentageChange(totalUsers, totalUsersLastWeek))
       },
 
       newSignups: {
         count: newSignupsToday,
         change: percentageChange(newSignupsToday, newSignupsYesterday),
-        trend: direction(percentageChange(newSignupsToday, newSignupsYesterday)),
+        trend: direction(percentageChange(newSignupsToday, newSignupsYesterday))
       },
 
       profileCompleted: {
         count: profileCompleted,
         change: percentageChange(profileCompleted, profileCompletedLastWeek),
-        trend: direction(percentageChange(profileCompleted, profileCompletedLastWeek)),
+        trend: direction(percentageChange(profileCompleted, profileCompletedLastWeek))
       },
 
       profileIncomplete: {
         count: profileIncomplete,
         change: percentageChange(profileIncomplete, profileIncompleteLastWeek),
-        trend: direction(percentageChange(profileIncomplete, profileIncompleteLastWeek)),
+        trend: direction(percentageChange(profileIncomplete, profileIncompleteLastWeek))
       },
 
       approvedProfiles: {
         count: approvedProfilesCount,
         change: percentageChange(approvedProfilesCount, approvedProfilesLastWeek),
         trend: direction(percentageChange(approvedProfilesCount, approvedProfilesLastWeek)),
-        profileImage: approvedImageUrls,
+        profileImage: approvedImageUrls
       },
 
       pendingProfiles: {
         count: pendingProfilesCount,
         change: percentageChange(pendingProfilesCount, pendingProfilesLastWeek),
         trend: direction(percentageChange(pendingProfilesCount, pendingProfilesLastWeek)),
-        profileImage: pendingImageUrls,
-      },
+        profileImage: pendingImageUrls
+      }
     });
+
   } catch (err) {
     res.status(500).json({
       message: "Failed to fetch user stats",
-      error: err.message,
+      error: err.message
     });
   }
 };
+
 
 
 
