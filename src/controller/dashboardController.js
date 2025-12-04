@@ -32,49 +32,56 @@ const now = moment().tz("Asia/Kolkata");
 // ===========================
 // MAIN FUNCTION UPDATED
 // ===========================
+const safe = (n) => (n === 0 ? 1 : n);
+
+// TRUE PERCENT FUNCTION
 const percent = (current, previous) => {
-  if (previous === 0) {
-    return current > 0 ? 100 : 1; // Minimum 1%
-  }
-
-  const result = Number((((current - previous) / previous) * 100).toFixed(1));
-
-  return result === 0 ? 1 : result; // Minimum 1%
+  if (previous === 0) return current > 0 ? 100 : 0;
+  return Number((((current - previous) / previous) * 100).toFixed(1));
 };
-
 
 export const getStatsSummary = async (req, res) => {
   try {
     const now = moment().tz("Asia/Kolkata");
 
-    const todayStart = now.clone().startOf("day").toDate();
-    const todayEnd = now.clone().endOf("day").toDate();
+    // TODAY / YESTERDAY
+    const todayStart = now.clone().startOf("day");
+    const tomorrowStart = todayStart.clone().add(1, "day");
 
-    const yesterdayStart = now.clone().subtract(1, "day").startOf("day").toDate();
-    const yesterdayEnd = now.clone().subtract(1, "day").endOf("day").toDate();
+    const yesterdayStart = todayStart.clone().subtract(1, "day");
+    const yesterdayEnd = todayStart.clone();
 
-    const thisWeekStart = now.clone().startOf("isoWeek").toDate();
-    const thisWeekEnd = now.toDate();
+    // THIS WEEK (Mon-Sun)
+    const thisWeekStart = now.clone().startOf("isoWeek");
+    const nextWeekStart = thisWeekStart.clone().add(1, "week");
 
-    const lastWeekStart = now.clone().subtract(1, "week").startOf("isoWeek").toDate();
-    const lastWeekEnd = now.clone().subtract(1, "week").endOf("isoWeek").toDate();
-
-    const last24HoursStart = now.clone().subtract(24, "hours").toDate();
-    const lastWeek24HoursStart = now.clone().subtract(8, "days").toDate();
-    const lastWeek24HoursEnd = now.clone().subtract(7, "days").toDate();
+    // LAST WEEK (Mon-Sun)
+    const lastWeekStart = thisWeekStart.clone().subtract(1, "week");
+    const lastWeekEnd = thisWeekStart.clone();
 
 
+    // ============ DATABASE QUERIES =============
     const [
       totalUsers,
+
+      // Signup Today / Yesterday
       newSignupsToday,
       newSignupsYesterday,
+
+      // Approved this week
       approvedThisWeek,
       approvedLastWeek,
+
+      // Pending counts
       pendingTotal,
       pendingThisWeek,
       pendingLastWeek,
-      activeUsersNow,
+
+      // Active users
+      activeUsers,
       activeUsersLastWeek,
+
+      // Reports
       pendingReports,
       blockedReports
     ] = await Promise.all([
@@ -82,72 +89,77 @@ export const getStatsSummary = async (req, res) => {
       RegisterModel.countDocuments(),
 
       RegisterModel.countDocuments({
-        createdAt: { $gte: todayStart, $lte: todayEnd }
+        createdAt: { $gte: todayStart.toDate(), $lt: tomorrowStart.toDate() }
       }),
 
       RegisterModel.countDocuments({
-        createdAt: { $gte: yesterdayStart, $lte: yesterdayEnd }
+        createdAt: { $gte: yesterdayStart.toDate(), $lt: yesterdayEnd.toDate() }
       }),
 
-      RegisterModel.countDocuments({
-        adminApprovel: "approved",
-        createdAt: { $gte: thisWeekStart, $lte: thisWeekEnd }
-      }),
-
+      // APPROVED THIS WEEK
       RegisterModel.countDocuments({
         adminApprovel: "approved",
-        createdAt: { $gte: lastWeekStart, $lte: lastWeekEnd }
+        createdAt: { $gte: thisWeekStart.toDate(), $lt: nextWeekStart.toDate() }
       }),
 
+      // APPROVED LAST WEEK
+      RegisterModel.countDocuments({
+        adminApprovel: "approved",
+        createdAt: { $gte: lastWeekStart.toDate(), $lt: lastWeekEnd.toDate() }
+      }),
+
+      // ALL pending
       RegisterModel.countDocuments({ adminApprovel: "pending" }),
 
+      // Pending THIS WEEK
       RegisterModel.countDocuments({
         adminApprovel: "pending",
-        createdAt: { $gte: thisWeekStart, $lte: thisWeekEnd }
+        createdAt: { $gte: thisWeekStart.toDate(), $lt: nextWeekStart.toDate() }
       }),
 
+      // Pending LAST WEEK
       RegisterModel.countDocuments({
         adminApprovel: "pending",
-        createdAt: { $gte: lastWeekStart, $lte: lastWeekEnd }
+        createdAt: { $gte: lastWeekStart.toDate(), $lt: lastWeekEnd.toDate() }
+      }),
+
+      // ACTIVE
+      RegisterModel.countDocuments({
+        lastLoginAt: { $gte: now.clone().subtract(24, "hours").toDate() }
       }),
 
       RegisterModel.countDocuments({
-        lastLoginAt: { $gte: last24HoursStart }
+        lastLoginAt: {
+          $gte: now.clone().subtract(8, "days").toDate(),
+          $lt: now.clone().subtract(7, "days").toDate()
+        }
       }),
 
-      RegisterModel.countDocuments({
-        lastLoginAt: { $gte: lastWeek24HoursStart, $lte: lastWeek24HoursEnd }
-      }),
-
+      // Reports
       ReportModel.countDocuments({ status: { $regex: /^pending$/i } }),
-      ReportModel.countDocuments({ status: { $regex: /^blocked$/i } }),
+      ReportModel.countDocuments({ status: { $regex: /^blocked$/i } })
     ]);
 
 
+    // ============ RESPONSE =============
     res.status(200).json({
-      totalUsers,
+      totalUsers: safe(totalUsers),
 
-      newSignups: newSignupsToday,
+      newSignups: safe(newSignupsToday),
       signupChangePercent: percent(newSignupsToday, newSignupsYesterday),
 
-      verifiedProfiles: approvedThisWeek,
+      // FINAL VERIFIED = This Week Approved
+      verifiedProfiles: safe(approvedThisWeek),
       verifiedChangePercent: percent(approvedThisWeek, approvedLastWeek),
 
-      pendingVerifications: pendingTotal,
+      pendingVerifications: safe(pendingTotal),
       pendingChangePercent: percent(pendingThisWeek, pendingLastWeek),
 
-      activeUsers: activeUsersNow,
-      activeUsersChangePercent: percent(activeUsersNow, activeUsersLastWeek),
+      activeUsers: safe(activeUsers),
+      activeUsersChangePercent: percent(activeUsers, activeUsersLastWeek),
 
-      reportedPercent: Math.max(
-        1,
-        Number(((pendingReports / totalUsers) * 100).toFixed(1))
-      ),
-
-      blockedPercent: Math.max(
-        1,
-        Number(((blockedReports / totalUsers) * 100).toFixed(1))
-      ),
+      reportedPercent: Math.max(1, Number(((pendingReports / totalUsers) * 100).toFixed(1))),
+      blockedPercent: Math.max(1, Number(((blockedReports / totalUsers) * 100).toFixed(1))),
     });
 
   } catch (error) {
@@ -155,6 +167,7 @@ export const getStatsSummary = async (req, res) => {
     res.status(500).json({ message: "Internal Server Error", error: error.message });
   }
 };
+
 
 
 
