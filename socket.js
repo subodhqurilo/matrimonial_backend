@@ -2,12 +2,12 @@ import mongoose from "mongoose";
 import messageModel from "./src/modal/messageModel.js";
 import RegisterModel from "./src/modal/register.js";
 
-// Track online users (userId -> Set<socketId>)
+// Track online users (userId → Set<socketIds>)
 const onlineUsers = new Map();
 
 export const socketHandler = (io) => {
   io.on("connection", (socket) => {
-    console.log(`✅ Socket connected: ${socket.id}`);
+    console.log(`🔗 Socket connected: ${socket.id}`);
 
     /* =====================================================
        1️⃣ USER ONLINE JOIN
@@ -20,42 +20,38 @@ export const socketHandler = (io) => {
 
       socket.join(String(userId));
 
-      console.log(`👤 User online: ${userId}`);
+      console.log(`🟢 User online: ${userId}`);
       io.emit("onlineUsers", Array.from(onlineUsers.keys()));
     });
 
     /* =====================================================
-       2️⃣ PUSH NOTIFICATION FOR MOBILE
+       2️⃣ PUSH NOTIFICATION EVENTS
     ===================================================== */
-    socket.on("newNotification", (data) => {
-      console.log("📢 Notification:", data);
-    });
-
     socket.on("send-notification", ({ userId, title, message }) => {
       if (!userId) return;
+
       io.to(String(userId)).emit("newNotification", {
         title,
         message,
         createdAt: new Date(),
       });
-      console.log("🔔 Notification sent to user:", userId);
+
+      console.log("🔔 Notification sent to:", userId);
     });
 
     /* =====================================================
-       3️⃣ REAL-TIME TYPING INDICATOR
+       3️⃣ TYPING INDICATOR
     ===================================================== */
     socket.on("typing", ({ from, to }) => {
-      if (!from || !to) return;
-      io.to(String(to)).emit("user-typing", { from, to });
+      if (from && to) io.to(String(to)).emit("user-typing", { from });
     });
 
     socket.on("stop-typing", ({ from, to }) => {
-      if (!from || !to) return;
-      io.to(String(to)).emit("user-stop-typing", { from, to });
+      if (from && to) io.to(String(to)).emit("user-stop-typing", { from });
     });
 
     /* =====================================================
-       4️⃣ SEND MESSAGE
+       4️⃣ SEND MESSAGE  ⭐ FIXED — NO DUPLICATE ANYWHERE
     ===================================================== */
     socket.on("send-msg", async ({ from, to, messageText, files, tempId }) => {
       try {
@@ -65,27 +61,26 @@ export const socketHandler = (io) => {
         const conversationId = [String(from), String(to)].sort().join("_");
 
         const safeFiles = (files || []).map((f) => ({
-          fileName: f.fileName || "unknown",
+          fileName: f.fileName || "file",
           fileUrl: f.fileUrl,
           fileType: f.fileType || "application/octet-stream",
           fileSize: f.fileSize || 0,
         }));
 
-        const messageData = {
-          senderId: new mongoose.Types.ObjectId(String(from)),
-          receiverId: new mongoose.Types.ObjectId(String(to)),
+        // 1️⃣ Create DB message
+        let message = await messageModel.create({
+          senderId: new mongoose.Types.ObjectId(from),
+          receiverId: new mongoose.Types.ObjectId(to),
           conversationId,
           messageText: messageText || "",
           files: safeFiles,
           status: "sent",
           tempId,
-        };
-
-        let message = await messageModel.create(messageData);
+        });
 
         const isReceiverOnline = onlineUsers.has(String(to));
 
-        // If online — mark as delivered
+        // 2️⃣ If receiver online → mark delivered
         if (isReceiverOnline) {
           await messageModel.updateOne(
             { _id: message._id },
@@ -94,85 +89,73 @@ export const socketHandler = (io) => {
 
           message = await messageModel.findById(message._id);
 
-          // SEND "DELIVERED" update back to sender
           io.to(String(from)).emit("messageDelivered", {
             messageId: message._id,
             deliveredAt: message.deliveredAt,
           });
-
-          // Receiver gets live message
-          io.to(String(to)).emit("msg-receive", message);
-        } else {
-          // Receiver offline → still send message
-          io.to(String(to)).emit("msg-receive", message);
         }
 
-        // SEND "Message Sent" confirmation to sender
+        // 3️⃣ Receiver gets message (ONLY 1 TIME)
+        io.to(String(to)).emit("msg-receive", message);
+
+        // 4️⃣ Sender gets msg confirmation
         io.to(String(from)).emit("msg-sent", message);
 
         console.log(`📨 ${from} → ${to}: ${messageText}`);
       } catch (err) {
-        console.error("🚨 send-msg error:", err);
+        console.error("send-msg error:", err);
         socket.emit("errorMessage", { error: "Message send failed" });
       }
     });
 
     /* =====================================================
-       5️⃣ FETCH MESSAGES (History)
+       5️⃣ FETCH MESSAGE HISTORY
     ===================================================== */
     socket.on("get-messages", async ({ from, to }) => {
       try {
-        if (!from || !to) return;
-
         const conversationId = [String(from), String(to)].sort().join("_");
 
         const messages = await messageModel
           .find({ conversationId })
-          .populate("senderId", "firstName lastName profileImage")
-          .populate("receiverId", "firstName lastName profileImage")
           .sort({ createdAt: 1 });
 
         socket.emit("messages-history", messages);
       } catch (err) {
-        console.error("🚨 get-messages error:", err);
-        socket.emit("errorMessage", { error: "Failed to fetch messages" });
+        console.error(err);
       }
     });
 
     /* =====================================================
-       6️⃣ MARK AS READ (Backend + Socket)
+       6️⃣ MARK MESSAGES AS READ
     ===================================================== */
     socket.on("message-read-ack", async ({ conversationId, readerId, otherUserId }) => {
       try {
         await messageModel.updateMany(
           {
             conversationId,
-            receiverId: new mongoose.Types.ObjectId(String(readerId)),
+            receiverId: new mongoose.Types.ObjectId(readerId),
             status: { $ne: "read" },
           },
           { $set: { status: "read", readAt: new Date() } }
         );
 
-        // Notify sender that messages are read
         io.to(String(otherUserId)).emit("messageRead", {
           conversationId,
           readerId,
         });
       } catch (err) {
-        console.error("message-read-ack error:", err);
+        console.error("Read ack error:", err);
       }
     });
 
     /* =====================================================
-       7️⃣ DISCONNECT → UPDATE LAST SEEN
+       7️⃣ DISCONNECT — HANDLE LAST SEEN
     ===================================================== */
     socket.on("disconnect", async () => {
       let disconnectedUser = null;
 
       for (const [userId, sockets] of onlineUsers.entries()) {
-        if (sockets.has(socket.id)) {
-          sockets.delete(socket.id);
-
+        if (sockets.delete(socket.id)) {
           if (sockets.size === 0) {
             onlineUsers.delete(userId);
             disconnectedUser = userId;
@@ -182,19 +165,14 @@ export const socketHandler = (io) => {
       }
 
       if (disconnectedUser) {
-        console.log(`❌ User offline: ${disconnectedUser}`);
+        await RegisterModel.findByIdAndUpdate(disconnectedUser, {
+          lastSeen: new Date(),
+        });
 
-        try {
-          await RegisterModel.findByIdAndUpdate(disconnectedUser, {
-            lastSeen: new Date(),
-          });
-
-          io.emit("user-offline", disconnectedUser);
-        } catch (err) {
-          console.error("❌ lastSeen update error:", err);
-        }
+        io.emit("user-offline", disconnectedUser);
+        console.log(`🔴 User offline: ${disconnectedUser}`);
       } else {
-        console.log(`❌ Socket disconnected: ${socket.id}`);
+        console.log(`🔌 Socket disconnected: ${socket.id}`);
       }
 
       io.emit("onlineUsers", Array.from(onlineUsers.keys()));
@@ -202,5 +180,4 @@ export const socketHandler = (io) => {
   });
 };
 
-// Helper
 export const getOnlineUserIds = () => Array.from(onlineUsers.keys());
