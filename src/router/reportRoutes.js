@@ -2,7 +2,7 @@ import express from 'express';
 import {
   createReport,
   getAllReportsAnalize,
-  getSingleReport 
+  getSingleReport, getWeeklyReportStats ,
 } from '../controller/reportController.js';
 
 import { authenticateUser } from '../middlewares/authMiddleware.js';
@@ -28,5 +28,9 @@ reportRouter.get(
   getSingleReport
 );
 
+reportRouter.get(
+  '/WeeklyReportStats',
+  authenticateUser,
+  getWeeklyReportStats);
 
 export default reportRouter;

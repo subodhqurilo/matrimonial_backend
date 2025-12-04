@@ -1,3 +1,5 @@
+import moment from "moment-timezone";
+
 import mongoose from "mongoose";
 import ReportModel from '../modal/ReportModel.js';
 import RegisterModel from '../modal/register.js';
@@ -213,6 +215,70 @@ export const getSingleReport = async (req, res) => {
       success: false,
       message: "Error fetching report details",
       error: err.message,
+    });
+  }
+};
+
+export const getWeeklyReportStats = async (req, res) => {
+  try {
+    const now = moment().tz("Asia/Kolkata");
+
+    // THIS WEEK (Monday → Sunday)
+    const thisWeekStart = now.clone().startOf("isoWeek").toDate();
+    const thisWeekEnd = now.clone().endOf("isoWeek").toDate();
+
+    // ===========================================
+    // DATABASE QUERIES
+    // ===========================================
+
+    const [
+      totalReportsThisWeek,
+      pendingReportReview,
+      actionTaken,
+      blockedUsers
+    ] = await Promise.all([
+
+      // 1️⃣ Total reports this week
+      ReportModel.countDocuments({
+        createdAt: { $gte: thisWeekStart, $lte: thisWeekEnd }
+      }),
+
+      // 2️⃣ Pending review (ALL TIME)
+      ReportModel.countDocuments({
+        status: { $regex: /^pending$/i }
+      }),
+
+      // 3️⃣ Action Taken (approved OR rejected)
+      ReportModel.countDocuments({
+        status: { $in: ["approved", "rejected"] }
+      }),
+
+      // 4️⃣ Blocked users (two conditions)
+      RegisterModel.countDocuments({
+        adminApprovel: "blocked"
+      })
+
+    ]);
+
+    // ===========================================
+    // RESPONSE
+    // ===========================================
+    return res.status(200).json({
+      success: true,
+      data: {
+        totalReportsThisWeek,
+        pendingReportReview,
+        actionTaken,
+        blockedUsers
+      }
+    });
+
+  } catch (err) {
+    console.error("Report Stats Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: err.message
     });
   }
 };
