@@ -82,25 +82,17 @@ export const createReport = async (req, res) => {
 
 export const getAllReportsAnalize = async (req, res) => {
   try {
-    // Default page = 1
-    const page = parseInt(req.query.page) || 1;
-    const limit = 5; // 5 items per page
-    const skip = (page - 1) * limit;
-
-    // Total documents count
+    // Total reports count
     const totalReports = await ReportModel.countDocuments();
 
+    // Fetch ALL reports (no pagination)
     const reports = await ReportModel.find()
       .populate('reporter', 'firstName lastName email profileImage gender')
       .populate('reportedUser', 'firstName lastName email profileImage gender adminApprovel')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
+      .sort({ createdAt: -1 });
 
     return res.status(200).json({
       success: true,
-      currentPage: page,
-      totalPages: Math.ceil(totalReports / limit),
       totalReports,
       data: reports
     });
@@ -114,6 +106,7 @@ export const getAllReportsAnalize = async (req, res) => {
     });
   }
 };
+
 
 
 
