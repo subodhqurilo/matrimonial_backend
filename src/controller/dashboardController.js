@@ -1604,14 +1604,7 @@ export const updateReportStatus = async (req, res) => {
 // GET all users
 export const getAllUsers = async (req, res) => {
   try {
-    const {
-      page = 1,
-      search = "",
-      gender,
-      status,
-    } = req.query;
-
-    const limit = 5; // 👈 FIXED: 1 page = 5 users only
+    const { search = "", gender, status } = req.query;
 
     const query = {};
 
@@ -1630,30 +1623,20 @@ export const getAllUsers = async (req, res) => {
       query.gender = gender;
     }
 
-    // 🟢🟡🔴 Filter by verification status
+    // 🔵 Filter by verification status
     if (status) {
       query.verificationStatus = status;
     }
 
-    const skip = (page - 1) * limit;
-
-    const users = await RegisterModel.find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
-
-    const totalUsers = await RegisterModel.countDocuments(query);
+    // 👉 NO PAGINATION
+    const users = await RegisterModel.find(query).sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,
       data: users,
-      pagination: {
-        total: totalUsers,
-        page: Number(page),
-        limit,
-        totalPages: Math.ceil(totalUsers / limit),
-      },
+      total: users.length, // optional count
     });
+
   } catch (error) {
     console.error("Error fetching users:", error.message);
     res.status(500).json({
@@ -1662,6 +1645,7 @@ export const getAllUsers = async (req, res) => {
     });
   }
 };
+
 
 
 
