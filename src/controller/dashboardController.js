@@ -172,6 +172,70 @@ export const getStatsSummary = async (req, res) => {
 
 
 
+export const getWeeklyRequestStats = async (req, res) => {
+  try {
+    const now = moment().tz("Asia/Kolkata");
+
+    // THIS WEEK (Mon → Sun)
+    const thisWeekStart = now.clone().startOf("isoWeek").toDate();
+    const thisWeekEnd = now.clone().endOf("isoWeek").toDate();
+
+    // ====================================
+    // RUN QUERIES (Mixed week + total)
+    // ====================================
+
+    const [
+      totalRequestsThisWeek,   // WEEK WISE
+      pendingVerification,     // TOTAL
+      approvedThisWeek,        // WEEK WISE
+      rejectedDueToMismatch    // TOTAL
+    ] = await Promise.all([
+
+      // 1️⃣ Total Requests This Week
+      RegisterModel.countDocuments({
+        createdAt: { $gte: thisWeekStart, $lte: thisWeekEnd }
+      }),
+
+      // 2️⃣ Pending Verification (All-time)
+      RegisterModel.countDocuments({
+        adminApprovel: "pending"
+      }),
+
+      // 3️⃣ Approved This Week
+      RegisterModel.countDocuments({
+        adminApprovel: "approved",
+        createdAt: { $gte: thisWeekStart, $lte: thisWeekEnd }
+      }),
+
+      // 4️⃣ Rejected Due to mismatch (All-time)
+      RegisterModel.countDocuments({
+        adminApprovel: "reject"
+      })
+    ]);
+
+    // ====================================
+    // SEND RESPONSE
+    // ====================================
+    return res.status(200).json({
+      success: true,
+      data: {
+        totalRequestsThisWeek,
+        pendingVerification,
+        approvedThisWeek,
+        rejectedDueToMismatch
+      }
+    });
+
+  } catch (err) {
+    console.error("Weekly Request Stats Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: err.message
+    });
+  }
+};
+
 
 
 

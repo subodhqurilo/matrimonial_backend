@@ -2,7 +2,7 @@ import express  from "express";
 import { updateReportStatus,getWeeklyReportStats ,getAdminProfile,
   updateAdminBasicInfo,
   changeAdminPassword,
-  updateAdminSecurity,
+  updateAdminSecurity,getWeeklyRequestStats ,
   updateAdminPreferences, getAllManageUserData, getAllReportsAnalize, getAllUsers,getReportedContent, getFilteredManageUsers, getMatchesPerMonth, getProfileOverview, getSearchToMatchStats, getSignupGender, getSingleUserById, getStatsSummary, getUserManage, getUsers, getUserSignupTrends, getWeeklyReports, updateUserById, updateUserStatus, verifyAadhaar } from "../controller/dashboardController.js";
 import { authenticateUser } from "../middlewares/authMiddleware.js";
 import upload from '../middlewares/multer.js';
@@ -26,6 +26,7 @@ adminRoute.get('/summary', getStatsSummary);
 adminRoute.get('/getByGender', getSignupGender);
 adminRoute.get('/getUser', getUsers)
 adminRoute.get('/user-stats', getUserManage)
+adminRoute.get('/WeeklyRequestStats', getWeeklyRequestStats)
 
 
 
