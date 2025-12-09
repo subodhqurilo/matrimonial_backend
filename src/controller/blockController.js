@@ -167,3 +167,33 @@ export const calculateAge = (dob) => {
 
   return age;
 };
+export const getBlockedCount = async (req, res) => {
+  try {
+    const userId = req.userId;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing user ID"
+      });
+    }
+
+    // Count how many users this person has blocked
+    const count = await BlockModel.countDocuments({ blockedBy: userId });
+
+    return res.status(200).json({
+      success: true,
+      count,
+      message: "Blocked users count fetched successfully"
+    });
+
+  } catch (error) {
+    console.error("getBlockedCount error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message
+    });
+  }
+};

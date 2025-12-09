@@ -42,7 +42,7 @@ export const updateAdditionalDetails = async (req, res) => {
     // ---------------------- SAFE HOROSCOPE MERGE ----------------------
     if (body.horoscope) {
       finalUpdates.horoscope = {
-        ...(body.horoscope || {})
+        ...body.horoscope
       };
     }
 
@@ -54,9 +54,31 @@ export const updateAdditionalDetails = async (req, res) => {
     );
 
     if (!updatedUser) {
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
     }
 
+    /* =====================================================
+       🔴 SOCKET NOTIFICATION → ONLY SAME USER
+    ===================================================== */
+
+    const io = req.app.get("io");
+
+    if (io) {
+      io.to(String(userId)).emit("newNotification", {
+        title: "Profile Updated",
+        message: "Your additional details have been updated.",
+        type: "additional_details_update",
+        userId,
+        createdAt: new Date(),
+      });
+    }
+
+    /* =====================================================
+       ⚠ RESPONSE — EXACT SAME (NO CHANGE)
+    ===================================================== */
     return res.status(200).json({
       success: true,
       message: "Additional details updated successfully",
@@ -72,6 +94,7 @@ export const updateAdditionalDetails = async (req, res) => {
     });
   }
 };
+
 
 
 

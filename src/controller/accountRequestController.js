@@ -2,6 +2,7 @@ import moment from "moment";
 import NotificationModel from "../modal/Notification.js";
 import { sendExpoPush } from "../utils/expoPush.js"; // expo push function
 
+
 import { AccountRequestModel } from "../modal/accountRequestModel.js";
 
 export const calculateAge = dob => {
@@ -63,15 +64,21 @@ export const requestAccount = async (req, res) => {
   const { receiverId } = req.body;
 
   if (!requesterId || !receiverId) {
-    return res.status(400).json({ success: false, message: "Both requesterId and receiverId are required" });
+    return res.status(400).json({
+      success: false,
+      message: "Both requesterId and receiverId are required"
+    });
   }
 
   if (requesterId.toString() === receiverId.toString()) {
-    return res.status(400).json({ success: false, message: "You cannot send a request to yourself" });
+    return res.status(400).json({
+      success: false,
+      message: "You cannot send a request to yourself"
+    });
   }
 
   try {
-    // 🔍 Check if any request already exists (both directions)
+    // Check if existing request exists
     const existing = await AccountRequestModel.findOne({
       $or: [
         { requesterId, receiverId },
@@ -89,7 +96,7 @@ export const requestAccount = async (req, res) => {
       });
     }
 
-    // ➕ Create new request
+    // Create new request
     const newRequest = new AccountRequestModel({
       requesterId,
       receiverId,
@@ -97,6 +104,55 @@ export const requestAccount = async (req, res) => {
     });
 
     await newRequest.save();
+
+    /* =====================================================
+       🔔 Expo Push Notification (BOTH USERS)
+    ===================================================== */
+
+    const requesterUser = await RegisterModel.findById(requesterId).select("expoPushToken fullName");
+    const receiverUser = await RegisterModel.findById(receiverId).select("expoPushToken fullName");
+
+    const title = "Account Request Update";
+    const messageRcv = "You received a new account request.";
+    const messageReq = "Your account request has been sent.";
+
+    if (receiverUser?.expoPushToken) {
+      sendExpoPush(receiverUser.expoPushToken, title, messageRcv).catch(() => {});
+    }
+
+    if (requesterUser?.expoPushToken) {
+      sendExpoPush(requesterUser.expoPushToken, title, messageReq).catch(() => {});
+    }
+
+    /* =====================================================
+       🔴 Socket — BOTH USERS
+    ===================================================== */
+
+    const io = req.app.get("io");
+
+    if (io) {
+      io.to(String(receiverId)).emit("newNotification", {
+        title,
+        message: messageRcv,
+        type: "request_received",
+        requestId: newRequest._id,
+        from: requesterId,
+        createdAt: new Date(),
+      });
+
+      io.to(String(requesterId)).emit("newNotification", {
+        title,
+        message: messageReq,
+        type: "request_sent",
+        requestId: newRequest._id,
+        from: requesterId,
+        createdAt: new Date(),
+      });
+    }
+
+    /* =====================================================
+       ⚠ RESPONSE — SAME
+    ===================================================== */
 
     return res.status(201).json({
       success: true,
@@ -115,8 +171,9 @@ export const requestAccount = async (req, res) => {
 };
 
 
+
 export const updateAccountRequestStatus = async (req, res) => {
-  const userId = req.userId; // Logged-in user (receiver)
+  const userId = req.userId; // Receiver (logged-in user)
   const { requestId, status } = req.body;
 
   if (!["accepted", "rejected"].includes(status)) {
@@ -124,7 +181,7 @@ export const updateAccountRequestStatus = async (req, res) => {
   }
 
   try {
-    // 🔍 1. Find the request (User must be receiver)
+    // 1️⃣ Find main request
     const request = await AccountRequestModel.findOne({
       _id: requestId,
       receiverId: userId,
@@ -137,7 +194,7 @@ export const updateAccountRequestStatus = async (req, res) => {
       });
     }
 
-    // ❗ If already accepted/rejected
+    // Already accepted/rejected?
     if (request.status === status) {
       return res.status(200).json({
         success: true,
@@ -146,11 +203,11 @@ export const updateAccountRequestStatus = async (req, res) => {
       });
     }
 
-    // ✔ 2. Update main request
+    // 2️⃣ Update main request
     request.status = status;
     await request.save();
 
-    // 🔁 3. Update reverse request (optional but good)
+    // 3️⃣ Update reverse request (optional)
     const reverseRequest = await AccountRequestModel.findOne({
       requesterId: userId,
       receiverId: request.requesterId,
@@ -161,49 +218,101 @@ export const updateAccountRequestStatus = async (req, res) => {
       await reverseRequest.save();
     }
 
-    // ----------------------------
-    // 🔔 4. STORE NOTIFICATION (BOTH USERS)
-    // ----------------------------
+    // -------------------------------
+    // 🧔 Both Users
+    // -------------------------------
+    const requesterId = request.requesterId; // jisne request bheji
+    const receiverId = request.receiverId;   // jisne request accept/reject ki
 
-    // Notification text
-    const notifyMsg =
+    const requesterUser = await RegisterModel.findById(requesterId).select(
+      "expoPushToken fullName"
+    );
+
+    const receiverUser = await RegisterModel.findById(receiverId).select(
+      "expoPushToken fullName"
+    );
+
+    // -----------------------------------------
+    // 🔔 4) SAVE NOTIFICATION FOR BOTH USERS
+    // -----------------------------------------
+    const requesterMsg =
       status === "accepted"
         ? "Your request has been accepted."
         : "Your request has been rejected.";
 
-    // A → B : requester → receiver
-    const requesterId = request.requesterId;
-    const receiverId = request.receiverId; // logged in
+    const receiverMsg =
+      status === "accepted"
+        ? "You have accepted the request."
+        : "You have rejected the request.";
 
-    // Notification for Requester
+    // Notify requester
     await NotificationModel.create({
       userId: requesterId,
-      message: notifyMsg,
+      message: requesterMsg,
       type: "request-update",
-      fromUser: userId,
+      fromUser: receiverId,
     });
 
-    // Notification for Receiver also
+    // Notify receiver
     await NotificationModel.create({
       userId: receiverId,
-      message: `You have ${status} the request.`,
+      message: receiverMsg,
       type: "request-update",
       fromUser: requesterId,
     });
 
-    // ----------------------------
-    // 📱 5. SEND EXPO PUSH ONLY TO REQUESTER
-    // ----------------------------
-    if (requesterId.expoToken) {
-      await sendExpoPush({
-        token: requesterId.expoToken,
+    // -----------------------------------------
+    // 📱 5) Expo Push (Both Users)
+    // -----------------------------------------
+
+    // To Requester
+    if (requesterUser?.expoPushToken) {
+      sendExpoPush(
+        requesterUser.expoPushToken,
+        "Request Update",
+        requesterMsg
+      ).catch(() => {});
+    }
+
+    // To Receiver
+    if (receiverUser?.expoPushToken) {
+      sendExpoPush(
+        receiverUser.expoPushToken,
+        "Request Update",
+        receiverMsg
+      ).catch(() => {});
+    }
+
+    // -----------------------------------------
+    // 🔴 6) SOCKET (Both Users)
+    // -----------------------------------------
+    const io = req.app.get("io");
+
+    if (io) {
+      // Notify Requester
+      io.to(String(requesterId)).emit("newNotification", {
         title: "Request Update",
-        body: notifyMsg,
+        message: requesterMsg,
+        type: "request-update",
+        requestId,
+        from: receiverId,
+        createdAt: new Date(),
+      });
+
+      // Notify Receiver
+      io.to(String(receiverId)).emit("newNotification", {
+        title: "Request Update",
+        message: receiverMsg,
+        type: "request-update",
+        requestId,
+        from: requesterId,
+        createdAt: new Date(),
       });
     }
 
-    // ----------------------------
-
+    // -----------------------------------------
+    // ⚠️ RESPONSE — EXACT SAME (NO CHANGE)
+    // -----------------------------------------
     return res.status(200).json({
       success: true,
       message: `Request ${status} successfully`,
@@ -218,6 +327,7 @@ export const updateAccountRequestStatus = async (req, res) => {
     });
   }
 };
+
 
 
 
@@ -613,6 +723,8 @@ export const getRejectedRequests = async (req, res) => {
 
 
 
+
+
 export const deleteAccountRequest = async (req, res) => {
   try {
     const userId = req.userId;
@@ -625,7 +737,7 @@ export const deleteAccountRequest = async (req, res) => {
       });
     }
 
-    // Check if request exists & belongs to the user (sender or receiver)
+    // Check request belongs to either sender or receiver
     const request = await AccountRequestModel.findOne({
       _id: requestId,
       $or: [{ requesterId: userId }, { receiverId: userId }]
@@ -638,14 +750,75 @@ export const deleteAccountRequest = async (req, res) => {
       });
     }
 
+    // Identify both users
+    const requesterId = request.requesterId.toString();
+    const receiverId = request.receiverId.toString();
+
     // Delete request
     await AccountRequestModel.findByIdAndDelete(requestId);
 
+    /* =====================================================
+       🔔 FETCH BOTH USERS (RegisterModel)
+    ===================================================== */
+    const userA = await RegisterModel.findById(requesterId).select("expoPushToken fullName");
+    const userB = await RegisterModel.findById(receiverId).select("expoPushToken fullName");
+
+    const title = "Request Deleted";
+
+    const msgForUserA = "Your account request has been deleted.";
+    const msgForUserB = "You deleted the account request.";
+
+    /* =====================================================
+       📱 Expo Push — BOTH USERS
+    ===================================================== */
+
+    if (userA?.expoPushToken) {
+      sendExpoPush(userA.expoPushToken, title, msgForUserA)
+        .catch((err) => console.log("Expo Push Error:", err));
+    }
+
+    if (userB?.expoPushToken) {
+      sendExpoPush(userB.expoPushToken, title, msgForUserB)
+        .catch((err) => console.log("Expo Push Error:", err));
+    }
+
+    /* =====================================================
+       🔴 SOCKET NOTIFICATIONS — BOTH USERS
+    ===================================================== */
+
+    const io = req.app.get("io");
+
+    if (io) {
+      // Notify requester
+      io.to(String(requesterId)).emit("newNotification", {
+        title,
+        message: msgForUserA,
+        type: "request_deleted",
+        requestId,
+        from: userId,
+        createdAt: new Date(),
+      });
+
+      // Notify receiver
+      io.to(String(receiverId)).emit("newNotification", {
+        title,
+        message: msgForUserB,
+        type: "request_deleted",
+        requestId,
+        from: userId,
+        createdAt: new Date(),
+      });
+    }
+
+    /* =====================================================
+       ⚠️ RESPONSE — SAME (NO CHANGE AT ALL)
+    ===================================================== */
     return res.status(200).json({
       success: true,
       message: "Request deleted successfully",
       deletedRequestId: requestId
     });
+
   } catch (error) {
     console.error("❌ deleteAccountRequest Error:", error);
     return res.status(500).json({
@@ -655,6 +828,7 @@ export const deleteAccountRequest = async (req, res) => {
     });
   }
 };
+
 
 
 

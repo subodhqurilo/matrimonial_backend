@@ -8,7 +8,8 @@ import {
   getMatchedUsers,
   getTheyShortlisted,
   getIShortlisted,
-  getAllUsers 
+  getAllUsers ,
+  getShortlistCount
 } from '../controller/likeController.js';
 import { authenticateUser } from '../middlewares/authMiddleware.js';
 
@@ -24,6 +25,8 @@ likeRoute.get('/allMatches', authenticateUser, getMatchedUsers);
 likeRoute.get('/profileMatch', authenticateUser, getAllUsers );
 
 likeRoute.get('/theyShortlist', authenticateUser, getTheyShortlisted);
+likeRoute.get('/ShortlistCount', authenticateUser, getShortlistCount);
+
 likeRoute.get('/iShortlist', authenticateUser, getIShortlisted);
 
 export default likeRoute;

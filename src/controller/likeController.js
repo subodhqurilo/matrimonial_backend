@@ -650,6 +650,37 @@ export const getIShortlisted = async (req, res) => {
 };
 
 
+export const getShortlistCount = async (req, res) => {
+  try {
+    const myUserId = req.userId;
+
+    // Get all shortlisted records with receiver details (same as getIShortlisted)
+    const likes = await LikeModel.find({ senderId: myUserId })
+      .populate('receiverId', `
+        _id id firstName lastName dateOfBirth height religion caste occupation
+        annualIncome highestEducation currentCity city state currentState motherTongue
+        gender profileImage updatedAt createdAt designation
+      `);
+
+    // Apply SAME FILTER as main API
+    const validShortlisted = likes.filter(like => like.receiverId);
+
+    return res.status(200).json({
+      success: true,
+      count: validShortlisted.length,
+      message: "Shortlisted users count fetched successfully",
+    });
+
+  } catch (error) {
+    console.error("Error fetching shortlist count:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching shortlist count",
+      error: error.message,
+    });
+  }
+};
+
 
 
 
