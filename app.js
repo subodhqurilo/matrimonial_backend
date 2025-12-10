@@ -50,6 +50,7 @@ app.use('/api/similar',similarRouter)
 app.use('/api/banners',bannerRouter)
 app.use('/api/mutual-matches',mutualRouter)
 app.use('/admin',adminRoute)
+app.use("/uploads", express.static("uploads"));
 
 
 // Save Expo Token (Mobile Push)

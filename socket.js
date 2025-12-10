@@ -185,7 +185,7 @@ import mongoose from "mongoose";
 import messageModel from "./src/modal/messageModel.js";
 import RegisterModel from "./src/modal/register.js";
 
-// Track online users (userId → Set<socketIds>)
+// Online users map
 const onlineUsers = new Map();
 
 export const socketHandler = (io) => {
@@ -203,99 +203,76 @@ export const socketHandler = (io) => {
 
       socket.join(String(userId));
 
-      console.log(`🟢 User online: ${userId}`);
       io.emit("onlineUsers", Array.from(onlineUsers.keys()));
+      console.log("🟢 Online:", userId);
     });
 
     /* =====================================================
-       2️⃣ PUSH NOTIFICATION EVENTS
+       2️⃣ SEND MESSAGE (TEXT + FILE + IMAGE + REPLY)
     ===================================================== */
-    socket.on("send-notification", ({ userId, title, message }) => {
-      if (!userId) return;
-
-      io.to(String(userId)).emit("newNotification", {
-        title,
-        message,
-        createdAt: new Date(),
-      });
-
-      console.log("🔔 Notification sent:", userId);
-    });
-
-    /* =====================================================
-       3️⃣ TYPING EVENTS
-    ===================================================== */
-    socket.on("typing", ({ from, to }) => {
-      if (from && to) io.to(String(to)).emit("user-typing", { from });
-    });
-
-    socket.on("stop-typing", ({ from, to }) => {
-      if (from && to) io.to(String(to)).emit("user-stop-typing", { from });
-    });
-
-    /* =====================================================
-       4️⃣ SEND MESSAGE (TEXT + FILE + REPLY)
-    ===================================================== */
-    socket.on("send-msg", async ({ from, to, messageText, files, tempId, replyTo }) => {
+    socket.on("send-msg", async ({ from, to, messageText, files, replyTo, tempId }) => {
       try {
-        if (!from || !to || (!messageText && (!files || files.length === 0)))
-          return;
+        if (!from || !to) return;
+        if (!messageText && (!files || files.length === 0)) return;
 
         const conversationId = [String(from), String(to)].sort().join("_");
 
-        const safeFiles = (files || []).map((f) => ({
-          fileName: f.fileName || "file",
-          fileUrl: f.fileUrl,
-          fileType: f.fileType || "application/octet-stream",
-          fileSize: f.fileSize || 0,
-        }));
+        // 🟢 CREATE FULL FILE URL ALWAYS
+        const safeFiles = (files || []).map((f) => {
+          let url = f.fileUrl || "";
 
-        // 1️⃣ Create Message in DB
+          if (url && !url.startsWith("http")) {
+            url = `${process.env.BASE_URL}/${url}`;
+          }
+
+          return {
+            fileName: f.fileName || "file",
+            fileUrl: url,
+            fileType: f.fileType || "application/octet-stream",
+            fileSize: f.fileSize || 0,
+          };
+        });
+
+        // 1️⃣ SAVE MESSAGE IN DB
         let message = await messageModel.create({
           senderId: new mongoose.Types.ObjectId(from),
           receiverId: new mongoose.Types.ObjectId(to),
           conversationId,
           messageText: messageText || "",
-          files: safeFiles,
           replyTo: replyTo || null,
+          files: safeFiles,
           status: "sent",
           tempId,
         });
 
         const isReceiverOnline = onlineUsers.has(String(to));
 
-        // 2️⃣ If receiver online => mark delivered
+        // 2️⃣ Delivered update
         if (isReceiverOnline) {
           await messageModel.updateOne(
             { _id: message._id },
             { $set: { status: "delivered", deliveredAt: new Date() } }
           );
-
-          message = await messageModel
-            .findById(message._id)
-            .populate("replyTo");
-          
-          io.to(String(from)).emit("messageDelivered", {
-            messageId: message._id,
-            deliveredAt: message.deliveredAt,
-          });
         }
 
-        // 3️⃣ Receiver gets message
+        // Reload message with REPLY populated
+        message = await messageModel.findById(message._id).populate("replyTo");
+
+        // 3️⃣ Send to receiver
         io.to(String(to)).emit("msg-receive", message);
 
-        // 4️⃣ Sender gets confirmation
+        // 4️⃣ Send confirmation to sender
         io.to(String(from)).emit("msg-sent", message);
 
-        console.log(`📨 ${from} → ${to}: ${messageText}`);
+        console.log("📨 Message:", messageText);
+
       } catch (err) {
-        console.error("send-msg error:", err);
-        socket.emit("errorMessage", { error: "Message send failed" });
+        console.error("send-msg Error:", err);
       }
     });
 
     /* =====================================================
-       5️⃣ FETCH MESSAGE HISTORY (WITH REPLY + DELETE FILTER)
+       3️⃣ FETCH MESSAGE HISTORY
     ===================================================== */
     socket.on("get-messages", async ({ from, to }) => {
       try {
@@ -314,7 +291,7 @@ export const socketHandler = (io) => {
     });
 
     /* =====================================================
-       6️⃣ MARK AS READ
+       4️⃣ READ RECEIPT
     ===================================================== */
     socket.on("message-read-ack", async ({ conversationId, readerId, otherUserId }) => {
       try {
@@ -332,12 +309,12 @@ export const socketHandler = (io) => {
           readerId,
         });
       } catch (err) {
-        console.error("Read ack error:", err);
+        console.error("Read ACK Error:", err);
       }
     });
 
     /* =====================================================
-       7️⃣ DISCONNECT — UPDATE LAST SEEN
+       5️⃣ USER DISCONNECT
     ===================================================== */
     socket.on("disconnect", async () => {
       let disconnectedUser = null;
@@ -358,9 +335,7 @@ export const socketHandler = (io) => {
         });
 
         io.emit("user-offline", disconnectedUser);
-        console.log(`🔴 User offline: ${disconnectedUser}`);
-      } else {
-        console.log(`🔌 Socket disconnected: ${socket.id}`);
+        console.log("🔴 Offline:", disconnectedUser);
       }
 
       io.emit("onlineUsers", Array.from(onlineUsers.keys()));
