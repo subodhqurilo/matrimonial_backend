@@ -182,167 +182,155 @@
 
 // export const getOnlineUserIds = () => Array.from(onlineUsers.keys());
 import mongoose from "mongoose";
-import fs from "fs";
-import path from "path";
 import messageModel from "./src/modal/messageModel.js";
 import RegisterModel from "./src/modal/register.js";
 
+// Track online users
 const onlineUsers = new Map();
 
 export const socketHandler = (io) => {
   io.on("connection", (socket) => {
-    console.log(":zap: Socket connected:", socket.id);
+    console.log(`:link: Socket connected: ${socket.id}`);
 
     /* =====================================================
-        :one: USER ONLINE
+        1️⃣ USER ONLINE JOIN
     ===================================================== */
     socket.on("add-user", (userId) => {
       if (!userId) return;
 
-      if (!onlineUsers.has(userId)) {
-        onlineUsers.set(userId, new Set());
-      }
-
+      if (!onlineUsers.has(userId)) onlineUsers.set(userId, new Set());
       onlineUsers.get(userId).add(socket.id);
+
       socket.join(String(userId));
 
-      console.log(":large_green_circle: ONLINE:", userId);
+      console.log(`:large_green_circle: User online: ${userId}`);
       io.emit("onlineUsers", Array.from(onlineUsers.keys()));
     });
 
     /* =====================================================
-        :two: SEND MESSAGE (TEXT + FILE + REPLY)
-        FRONTEND MUST SEND BASE64 → fileData
+        2️⃣ SEND MESSAGE (TEXT + FILE + REPLY)
+        FRONTEND SENDS DIRECT FILE URL -> NO BASE64
     ===================================================== */
     socket.on("send-msg", async ({ from, to, messageText, files, replyTo, tempId }) => {
       try {
-        if (!from || !to) return;
+        if (!from || !to || (!messageText && (!files || files.length === 0))) return;
 
         const conversationId = [String(from), String(to)].sort().join("_");
 
-        /* -----------------------------------------------------
-            FILE PROCESSING (BASE64 → REAL FILE)
-        ----------------------------------------------------- */
-        const processedFiles = [];
+        // SAFE FILE OBJECT (NO BASE64 HANDLING)
+        const safeFiles = (files || []).map((f) => ({
+          fileName: f.fileName || "file",
+          fileUrl: f.fileUrl,                // 🔥 frontend already uploads file
+          fileType: f.fileType || "application/octet-stream",
+          fileSize: f.fileSize || 0,
+        }));
 
-        if (files && files.length > 0) {
-          for (const f of files) {
-            if (!f.fileData) continue;
-
-            // Extract base64
-            const base64String = f.fileData.split(",")[1];
-            const buffer = Buffer.from(base64String, "base64");
-
-            // Create file name & path
-            const fileName = `${Date.now()}-${f.fileName}`;
-            const savePath = path.join("uploads", fileName);
-
-            // Save to uploads/
-            fs.writeFileSync(savePath, buffer);
-
-            // Generate URL
-            const fileUrl = `${process.env.BASE_URL}/uploads/${fileName}`;
-
-            processedFiles.push({
-              fileName: f.fileName,
-              fileUrl,
-              fileType: f.fileType,
-              fileSize: f.fileSize,
-            });
-          }
-        }
-
-        /* -----------------------------------------------------
-            SAVE MESSAGE IN DB
-        ----------------------------------------------------- */
+        // 1️⃣ SAVE MESSAGE IN DB
         let message = await messageModel.create({
           senderId: new mongoose.Types.ObjectId(from),
           receiverId: new mongoose.Types.ObjectId(to),
           conversationId,
           messageText: messageText || "",
           replyTo: replyTo ? new mongoose.Types.ObjectId(replyTo) : null,
-          files: processedFiles,
+          files: safeFiles,
           status: "sent",
           tempId,
         });
 
-        // populate reply message
+        // 2️⃣ POPULATE replyTo MESSAGE
         message = await messageModel.findById(message._id).populate("replyTo");
 
-        /* -----------------------------------------------------
-            SEND TO RECEIVER
-        ----------------------------------------------------- */
+        const isReceiverOnline = onlineUsers.has(String(to));
+
+        // 3️⃣ DELIVERED STATUS
+        if (isReceiverOnline) {
+          await messageModel.updateOne(
+            { _id: message._id },
+            { $set: { status: "delivered", deliveredAt: new Date() } }
+          );
+
+          io.to(String(from)).emit("messageDelivered", {
+            messageId: message._id,
+            deliveredAt: new Date(),
+          });
+        }
+
+        // 4️⃣ SEND TO RECEIVER
         io.to(String(to)).emit("msg-receive", message);
 
-        /* -----------------------------------------------------
-            SEND CONFIRMATION TO SENDER
-        ----------------------------------------------------- */
+        // 5️⃣ CONFIRM TO SENDER
         io.to(String(from)).emit("msg-sent", message);
 
-        console.log(":incoming_envelope: Message Delivered");
+        console.log(`:incoming_envelope: ${from} → ${to}: ${messageText}`);
       } catch (err) {
-        console.error(":x: send-msg ERROR:", err);
+        console.error("send-msg error:", err);
       }
     });
 
     /* =====================================================
-        :three: FETCH HISTORY
+        3️⃣ GET MESSAGES
     ===================================================== */
     socket.on("get-messages", async ({ from, to }) => {
       try {
         const conversationId = [String(from), String(to)].sort().join("_");
 
-        const messages = await messageModel
+        const msgs = await messageModel
           .find({ conversationId })
           .populate("replyTo")
           .sort({ createdAt: 1 });
 
-        socket.emit("messages-history", messages);
+        socket.emit("messages-history", msgs);
       } catch (err) {
-        console.error(":x: HISTORY ERROR:", err);
+        console.error(err);
       }
     });
 
     /* =====================================================
-        :four: READ RECEIPTS
+        4️⃣ READ RECEIPT
     ===================================================== */
     socket.on("message-read-ack", async ({ conversationId, readerId, otherUserId }) => {
       try {
         await messageModel.updateMany(
           {
             conversationId,
-            receiverId: readerId,
+            receiverId: new mongoose.Types.ObjectId(readerId),
             status: { $ne: "read" },
           },
           { $set: { status: "read", readAt: new Date() } }
         );
 
-        io.to(String(otherUserId)).emit("messageRead", { conversationId, readerId });
+        io.to(String(otherUserId)).emit("messageRead", {
+          conversationId,
+          readerId,
+        });
       } catch (err) {
-        console.error(":x: READ ERROR:", err);
+        console.error("Read ack error:", err);
       }
     });
 
     /* =====================================================
-        :five: DISCONNECT
+        5️⃣ USER DISCONNECT
     ===================================================== */
     socket.on("disconnect", async () => {
-      let offlineUser = null;
+      let disconnectedUser = null;
 
       for (const [userId, sockets] of onlineUsers.entries()) {
         if (sockets.delete(socket.id)) {
           if (sockets.size === 0) {
             onlineUsers.delete(userId);
-            offlineUser = userId;
+            disconnectedUser = userId;
           }
           break;
         }
       }
 
-      if (offlineUser) {
-        await RegisterModel.findByIdAndUpdate(offlineUser, { lastSeen: new Date() });
-        io.emit("user-offline", offlineUser);
-        console.log(":red_circle: OFFLINE:", offlineUser);
+      if (disconnectedUser) {
+        await RegisterModel.findByIdAndUpdate(disconnectedUser, {
+          lastSeen: new Date(),
+        });
+
+        io.emit("user-offline", disconnectedUser);
+        console.log(`:red_circle: User offline: ${disconnectedUser}`);
       }
     });
   });
