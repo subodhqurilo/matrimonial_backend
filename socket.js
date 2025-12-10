@@ -96,10 +96,10 @@ export const socketHandler = (io) => {
         }
 
         // 3️⃣ Receiver gets message (ONLY 1 TIME)
-        // io.to(String(to)).emit("msg-receive", message);
+        io.to(String(to)).emit("msg-receive", message);
 
         // 4️⃣ Sender gets msg confirmation
-        // io.to(String(from)).emit("msg-sent", message);
+        io.to(String(from)).emit("msg-sent", message);
 
         console.log(`📨 ${from} → ${to}: ${messageText}`);
       } catch (err) {
