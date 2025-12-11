@@ -222,24 +222,29 @@ socket.on("send-msg", async ({ from, to, messageText, replyToId, tempId }) => {
       receiverId: to,
       conversationId,
       messageText,
-      files: [], // socket कभी file नहीं भेजेगा
-      replyTo: replyToId
-  ? mongoose.Types.ObjectId.createFromHexString(String(replyToId))
-  : null,
-
+      files: [],  // socket files nahi bhejta
+      replyTo: replyToId 
+        ? mongoose.Types.ObjectId.createFromHexString(String(replyToId))
+        : null,
       status: "sent",
       tempId,
     });
 
     message = await messageModel.findById(message._id).populate("replyTo");
 
-    io.to(String(to)).emit("msg-receive", message);
+    // 3️⃣ Receiver gets message (ONLY if receiver ≠ sender)
+    if (String(to) !== String(from)) {
+      io.to(String(to)).emit("msg-receive", message);
+    }
+
+    // 4️⃣ Sender gets msg confirmation
     io.to(String(from)).emit("msg-sent", message);
 
   } catch (err) {
     console.error("socket send-msg error:", err);
   }
 });
+
 
 
 
