@@ -107,28 +107,33 @@ export const postMessage = async (req, res) => {
       conversationId,
       messageText: messageText || "",
       files: uploadedFiles,
-      replyTo: replyToId || null,
+      replyTo: replyToId ? new mongoose.Types.ObjectId(replyToId) : null,
       status: "sent",
     });
 
     // Populate replyTo
-    if (message.replyTo) {
-      message = await message.populate("replyTo");
-    }
+    message = await messageModel
+      .findById(message._id)
+      .populate("replyTo");
 
     const io = req.app.get("io");
 
     if (io) {
+      // 🔥 Send to receiver
       io.to(String(receiverId)).emit("msg-receive", message);
+
+      // 🔥 Send confirmation to sender
       io.to(String(senderId)).emit("msg-sent", message);
     }
 
-    return res.status(200).json({ success: true, data: message });
+    return res.status(201).json({ success: true, data: message });
+
   } catch (error) {
     console.error("postMessage error:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
 
 
 

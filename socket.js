@@ -222,8 +222,11 @@ socket.on("send-msg", async ({ from, to, messageText, replyToId, tempId }) => {
       receiverId: to,
       conversationId,
       messageText,
-      files: [],         // socket कभी file नहीं भेजेगा
-      replyTo: replyToId || null,
+      files: [], // socket कभी file नहीं भेजेगा
+      replyTo: replyToId
+  ? mongoose.Types.ObjectId.createFromHexString(String(replyToId))
+  : null,
+
       status: "sent",
       tempId,
     });
@@ -234,9 +237,10 @@ socket.on("send-msg", async ({ from, to, messageText, replyToId, tempId }) => {
     io.to(String(from)).emit("msg-sent", message);
 
   } catch (err) {
-    console.error('socket send-msg error:', err);
+    console.error("socket send-msg error:", err);
   }
 });
+
 
 
 
