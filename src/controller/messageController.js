@@ -6,6 +6,7 @@ import { getOnlineUserIds } from "../../socket.js";
 import RegisterModel from "../modal/register.js";
 import cloudinary from "../utils/cloudinary.js";
 
+
 /**
  * Utility: generate a consistent conversationId
  */
@@ -18,18 +19,78 @@ const getConversationId = (id1, id2) => {
  * Body: { receiverId, messageText }
  * Needs authenticateUser to set req.userId
  */
+// export const postMessage = async (req, res) => {
+//   try {
+//     const { receiverId, messageText, replyToId } = req.body;
+//     const senderId = req.userId;
+
+//     if (!senderId || !receiverId) {
+//       return res.status(400).json({ success: false, message: "receiverId required" });
+//     }
+
+//     const uploadedFiles = (req.files || []).map((file) => ({
+//       fileName: file.originalname,
+//       fileUrl: file.path,  
+//       fileType: file.mimetype,
+//       fileSize: file.size,
+//     }));
+
+//     if (!messageText?.trim() && uploadedFiles.length === 0) {
+//       return res.status(400).json({ success: false, message: "Text or file required" });
+//     }
+
+//     const conversationId = getConversationId(senderId, receiverId);
+
+//     // ⭐ Create message
+//     let message = await messageModel.create({
+//       senderId,
+//       receiverId,
+//       conversationId,
+//       messageText: messageText?.trim() || "",
+//       files: uploadedFiles,
+//       replyTo: replyToId ? new mongoose.Types.ObjectId(replyToId) : null,
+
+//       status: "sent",
+//     });
+
+//     // ⭐ Populate replyTo message
+//     if (message.replyTo) {
+//       message = await message.populate("replyTo");
+//     }
+
+//     // ⭐ Emit to socket
+//     const io = req.app.get("io");
+//     if (io) {
+//       io.to(String(receiverId)).emit("msg-receive", message);
+//       io.to(String(senderId)).emit("msg-sent", message);
+//     }
+
+//     res.status(201).json({
+//       success: true,
+//       message: "Message sent",
+//       data: message,
+//     });
+
+//   } catch (error) {
+//     console.error("Error in postMessage:", error);
+//     res.status(500).json({ success: false, message: "Internal server error" });
+//   }
+// };
+
+
 export const postMessage = async (req, res) => {
   try {
-    const { receiverId, messageText, replyToId } = req.body;
     const senderId = req.userId;
+    const { receiverId, messageText, replyToId } = req.body;
 
-    if (!senderId || !receiverId) {
+    if (!receiverId) {
       return res.status(400).json({ success: false, message: "receiverId required" });
     }
 
+    // FILES uploaded via multer + cloudinary
     const uploadedFiles = (req.files || []).map((file) => ({
       fileName: file.originalname,
-      fileUrl: file.path,  
+      fileUrl: file.path,        // Cloudinary URL
       fileType: file.mimetype,
       fileSize: file.size,
     }));
@@ -38,43 +99,36 @@ export const postMessage = async (req, res) => {
       return res.status(400).json({ success: false, message: "Text or file required" });
     }
 
-    const conversationId = getConversationId(senderId, receiverId);
+    const conversationId = [String(senderId), String(receiverId)].sort().join("_");
 
-    // ⭐ Create message
     let message = await messageModel.create({
       senderId,
       receiverId,
       conversationId,
-      messageText: messageText?.trim() || "",
+      messageText: messageText || "",
       files: uploadedFiles,
-      replyTo: replyToId || null,   // ⭐⭐ MUST BE ADDED
+      replyTo: replyToId || null,
       status: "sent",
     });
 
-    // ⭐ Populate replyTo message
+    // Populate replyTo
     if (message.replyTo) {
       message = await message.populate("replyTo");
     }
 
-    // ⭐ Emit to socket
     const io = req.app.get("io");
+
     if (io) {
       io.to(String(receiverId)).emit("msg-receive", message);
       io.to(String(senderId)).emit("msg-sent", message);
     }
 
-    res.status(201).json({
-      success: true,
-      message: "Message sent",
-      data: message,
-    });
-
+    return res.status(200).json({ success: true, data: message });
   } catch (error) {
-    console.error("Error in postMessage:", error);
+    console.error("postMessage error:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
-
 
 
 

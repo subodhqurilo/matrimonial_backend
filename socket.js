@@ -211,61 +211,34 @@ export const socketHandler = (io) => {
         2️⃣ SEND MESSAGE (TEXT + FILE + REPLY)
         FRONTEND SENDS DIRECT FILE URL -> NO BASE64
     ===================================================== */
-    socket.on("send-msg", async ({ from, to, messageText, files, replyTo, tempId }) => {
-      try {
-        if (!from || !to || (!messageText && (!files || files.length === 0))) return;
+socket.on("send-msg", async ({ from, to, messageText, replyToId, tempId }) => {
+  try {
+    if (!from || !to || (!messageText)) return;
 
-        const conversationId = [String(from), String(to)].sort().join("_");
+    const conversationId = [String(from), String(to)].sort().join("_");
 
-        // SAFE FILE OBJECT (NO BASE64 HANDLING)
-        const safeFiles = (files || []).map((f) => ({
-          fileName: f.fileName || "file",
-          fileUrl: f.fileUrl,                // 🔥 frontend already uploads file
-          fileType: f.fileType || "application/octet-stream",
-          fileSize: f.fileSize || 0,
-        }));
-
-        // 1️⃣ SAVE MESSAGE IN DB
-        let message = await messageModel.create({
-          senderId: new mongoose.Types.ObjectId(from),
-          receiverId: new mongoose.Types.ObjectId(to),
-          conversationId,
-          messageText: messageText || "",
-          replyTo: replyTo ? new mongoose.Types.ObjectId(replyTo) : null,
-          files: safeFiles,
-          status: "sent",
-          tempId,
-        });
-
-        // 2️⃣ POPULATE replyTo MESSAGE
-        message = await messageModel.findById(message._id).populate("replyTo");
-
-        const isReceiverOnline = onlineUsers.has(String(to));
-
-        // 3️⃣ DELIVERED STATUS
-        if (isReceiverOnline) {
-          await messageModel.updateOne(
-            { _id: message._id },
-            { $set: { status: "delivered", deliveredAt: new Date() } }
-          );
-
-          io.to(String(from)).emit("messageDelivered", {
-            messageId: message._id,
-            deliveredAt: new Date(),
-          });
-        }
-
-        // 4️⃣ SEND TO RECEIVER
-        io.to(String(to)).emit("msg-receive", message);
-
-        // 5️⃣ CONFIRM TO SENDER
-        io.to(String(from)).emit("msg-sent", message);
-
-        console.log(`:incoming_envelope: ${from} → ${to}: ${messageText}`);
-      } catch (err) {
-        console.error("send-msg error:", err);
-      }
+    let message = await messageModel.create({
+      senderId: from,
+      receiverId: to,
+      conversationId,
+      messageText,
+      files: [],         // socket कभी file नहीं भेजेगा
+      replyTo: replyToId || null,
+      status: "sent",
+      tempId,
     });
+
+    message = await messageModel.findById(message._id).populate("replyTo");
+
+    io.to(String(to)).emit("msg-receive", message);
+    io.to(String(from)).emit("msg-sent", message);
+
+  } catch (err) {
+    console.error('socket send-msg error:', err);
+  }
+});
+
+
 
     /* =====================================================
         3️⃣ GET MESSAGES
