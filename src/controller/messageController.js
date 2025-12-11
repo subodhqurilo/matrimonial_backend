@@ -87,10 +87,9 @@ export const postMessage = async (req, res) => {
       return res.status(400).json({ success: false, message: "receiverId required" });
     }
 
-    // FILES uploaded via multer + cloudinary
     const uploadedFiles = (req.files || []).map((file) => ({
       fileName: file.originalname,
-      fileUrl: file.path,        // Cloudinary URL
+      fileUrl: file.path,
       fileType: file.mimetype,
       fileSize: file.size,
     }));
@@ -99,7 +98,9 @@ export const postMessage = async (req, res) => {
       return res.status(400).json({ success: false, message: "Text or file required" });
     }
 
-    const conversationId = [String(senderId), String(receiverId)].sort().join("_");
+    const conversationId = [String(senderId), String(receiverId)]
+      .sort()
+      .join("_");
 
     let message = await messageModel.create({
       senderId,
@@ -111,28 +112,26 @@ export const postMessage = async (req, res) => {
       status: "sent",
     });
 
-    // Populate replyTo
-    message = await messageModel
-      .findById(message._id)
-      .populate("replyTo");
+    // Populate reply message
+    message = await messageModel.findById(message._id).populate("replyTo");
 
-    const io = req.app.get("io");
+    // ❌ REMOVE ALL SOCKET EMITS
+    // socket ka kaam socket handler karega, API nahi.
 
-    if (io) {
-      // 🔥 Send to receiver
-      io.to(String(receiverId)).emit("msg-receive", message);
-
-      // 🔥 Send confirmation to sender
-      io.to(String(senderId)).emit("msg-sent", message);
-    }
-
-    return res.status(201).json({ success: true, data: message });
+    return res.status(201).json({
+      success: true,
+      data: message,
+    });
 
   } catch (error) {
     console.error("postMessage error:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
   }
 };
+
 
 
 

@@ -22,7 +22,7 @@ const io = new Server(server, {
       'http://localhost:3001',
       'https://matrimonial-lq33.vercel.app',
       'https://matrimonial-backend-7ahc.onrender.com',
-      ''
+      'https://matro-main-ev8s.vercel.app'
     ],
     methods: ['GET', 'POST'],
     credentials: true,
