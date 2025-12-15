@@ -31,6 +31,7 @@ app.use(cors({
     'https://matrimonial-backend-7ahc.onrender.com',
     'https://matro-main-ev8s.vercel.app',
     'https://matro-main4444-bgn8.vercel.app',
+    'https://matro-main4444-4wza.vercel.app'
   ],
   credentials: true, // Only this line added
 }));
