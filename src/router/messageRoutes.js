@@ -8,22 +8,23 @@ import {
   markMessagesAsRead,
   getAllUser,  
   getChatList,
-    blockUser,
+  blockUser,
   unblockUser,
   deleteChat,
   deleteSingleMessage,
   getChatHeader,
-  checkBlockStatus ,
-  sendFileMessage
-
+  checkBlockStatus,
+  sendFileMessage,
+  searchMessages,  // Added from previous enhancement
+  getConversationInfo, // Optional: New endpoint
+  clearAllUnread // Optional: New endpoint
 } from '../controller/messageController.js';
 import { authenticateUser } from '../middlewares/authMiddleware.js';
-import upload from '../middlewares/multer.js'; // OK
-
-
+import upload from '../middlewares/multer.js';
 
 const messageRoutes = express.Router();
 
+// ==================== MESSAGE CRUD ====================
 messageRoutes.post('/', authenticateUser, upload.array("files"), postMessage);
 messageRoutes.post(
   "/send-file",
@@ -31,26 +32,33 @@ messageRoutes.post(
   upload.single("file"),
   sendFileMessage
 );
-
-
 messageRoutes.get('/', authenticateUser, getMessages);
+
+// ==================== MESSAGE MANAGEMENT ====================
+messageRoutes.post("/delete/message", authenticateUser, deleteSingleMessage);
+messageRoutes.post("/delete/chat", authenticateUser, deleteChat);
+messageRoutes.patch('/markAsRead', authenticateUser, markMessagesAsRead);
+messageRoutes.post('/clearAllUnread', authenticateUser, clearAllUnread); // Optional
+
+// ==================== USER & CHAT LIST ====================
 messageRoutes.get('/allUser', authenticateUser, getAllUser);
+messageRoutes.get("/chatList", authenticateUser, getChatList);
+messageRoutes.get("/chatHeader", authenticateUser, getChatHeader);
+messageRoutes.get('/allExceptMe', authenticateUser, getAllRequestsExceptMine);
+
+// ==================== STATUS & METRICS ====================
 messageRoutes.get('/unreadCount', authenticateUser, getUnreadMessagesCount);
 messageRoutes.get('/online', authenticateUser, getOnlineStatus);
+messageRoutes.get("/isBlocked/:otherUserId", authenticateUser, checkBlockStatus);
 
-// 👇 New endpoint for marking messages as read
-messageRoutes.patch('/markAsRead', authenticateUser, markMessagesAsRead);
-messageRoutes.get("/chatList", authenticateUser, getChatList);
-// Block / Unblock user
+// ==================== BLOCK/UNBLOCK ====================
 messageRoutes.post("/block", authenticateUser, blockUser);
 messageRoutes.post("/unblock", authenticateUser, unblockUser);
 
-// Chat delete
-messageRoutes.post("/delete/chat", authenticateUser, deleteChat);
+// ==================== SEARCH ====================
+messageRoutes.get('/search', authenticateUser, searchMessages);
 
-// Single message delete (optional)
-messageRoutes.post("/delete/message", authenticateUser, deleteSingleMessage);
-messageRoutes.get("/chatHeader", authenticateUser, getChatHeader);
-messageRoutes.get("/isBlocked/:otherUserId", authenticateUser, checkBlockStatus);
+// ==================== CONVERSATION INFO ====================
+messageRoutes.get('/conversation/:otherUserId', authenticateUser, getConversationInfo); // Optional
 
 export default messageRoutes;
