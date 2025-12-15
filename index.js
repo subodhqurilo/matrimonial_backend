@@ -22,7 +22,7 @@ const io = new Server(server, {
       'http://localhost:3000',
       'http://localhost:3001',
       'http://localhost:5173',
-      'http://localhost:3002',
+      'https://matro-main4444-4wza.vercel.app',
       'https://matro-br.vercel.app',
       'https://matrimonial-backend-7ahc.onrender.com',
       'https://matro-main-ev8s.vercel.app',
