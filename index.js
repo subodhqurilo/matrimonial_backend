@@ -15,16 +15,21 @@ connectDB();
 // 2) HTTP + Socket server
 const server = http.createServer(app);
 
+// Socket.IO Configuration
 const io = new Server(server, {
   cors: {
     origin: process.env.CLIENT_URLS?.split(',') || [
       'http://localhost:3000',
       'http://localhost:3001',
-      'https://matrimonial-lq33.vercel.app',
+      'http://localhost:5173',
+      'http://localhost:3002',
+      'https://matro-br.vercel.app',
       'https://matrimonial-backend-7ahc.onrender.com',
-      'https://matro-main-ev8s.vercel.app'
+      'https://matro-main-ev8s.vercel.app',
+      'https://matro-main4444-bgn8.vercel.app',
     ],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   },
   pingTimeout: 60000,
@@ -32,52 +37,85 @@ const io = new Server(server, {
   connectionStateRecovery: {
     maxDisconnectionDuration: 2 * 60 * 1000, // 2 minutes
     skipMiddlewares: true,
-  }
+  },
+  transports: ['websocket', 'polling'],
+  maxHttpBufferSize: 1e8, // 100MB for file uploads
 });
 
 // 3) Attach io globally (so controllers can emit)
 app.set('io', io);
-global.io = io; // Also set globally for utility functions
+global.io = io; // Make io available globally for utility functions
 
 // 4) Attach socket handlers
 socketHandler(io);
 
-// 5) Handle errors gracefully
+// 5) Monitor socket connections
+let connectionCount = 0;
+io.engine.on("connection", (socket) => {
+  connectionCount++;
+  console.log(`📡 Total connections: ${connectionCount}`);
+  
+  socket.on("close", () => {
+    connectionCount--;
+    console.log(`📡 Total connections: ${connectionCount}`);
+  });
+});
+
+// 6) Socket.IO error handling
+io.engine.on("connection_error", (err) => {
+  console.error('❌ Socket.IO connection error:', {
+    code: err.code,
+    message: err.message,
+    context: err.context,
+  });
+});
+
+// 7) Handle errors gracefully
 server.on('error', (err) => {
   console.error('❌ Server error:', err.message);
-  process.exit(1);
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use.`);
+    process.exit(1);
+  }
 });
 
-// 6) Handle uncaught exceptions
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err);
-  process.exit(1);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-// 7) Graceful shutdown
-const gracefulShutdown = () => {
-  console.log('🛑 Received shutdown signal, closing server...');
+// 8) Handle process signals
+const gracefulShutdown = async (signal) => {
+  console.log(`\n🛑 Received ${signal}, shutting down gracefully...`);
   
+  // Close all Socket.IO connections
+  io.close();
+  console.log('✅ Socket.IO server closed');
+  
+  // Close HTTP server
   server.close(() => {
     console.log('✅ HTTP server closed');
     process.exit(0);
   });
 
-  // Force close after 10 seconds
+  // Force shutdown after 10 seconds
   setTimeout(() => {
     console.error('❌ Could not close connections in time, forcefully shutting down');
     process.exit(1);
   }, 10000);
 };
 
-process.on('SIGTERM', gracefulShutdown);
-process.on('SIGINT', gracefulShutdown);
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-// 8) Start server
+// 9) Handle uncaught exceptions
+process.on('uncaughtException', (err) => {
+  console.error('💥 Uncaught Exception:', err);
+  console.error('Stack:', err.stack);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('💥 Unhandled Rejection at:', promise);
+  console.error('Reason:', reason);
+});
+
+// 10) Start server
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`
 🚀 Server Information:
@@ -86,17 +124,37 @@ server.listen(PORT, '0.0.0.0', () => {
   URL: http://localhost:${PORT}
   Time: ${new Date().toLocaleString()}
   
-🔗 WebSocket: ws://localhost:${PORT}
-📡 Socket.IO Ready
+📡 Socket.IO Configuration:
+  CORS Origins: ${process.env.CLIENT_URLS || 'Default'}
+  Transports: websocket, polling
+  Connection Recovery: Enabled
+  
+🔗 WebSocket: ws://localhost:${PORT}/socket.io/?EIO=4&transport=websocket
   `);
 });
 
-// 9) Health check endpoint (for load balancers)
+// 11) Health check endpoint (for load balancers)
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'UP',
+    service: 'matrimonial-backend',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    memory: process.memoryUsage(),
+    connections: connectionCount,
+    environment: process.env.NODE_ENV || 'development',
+  });
+});
+
+// 12) Socket.IO status endpoint
+app.get('/socket-status', (req, res) => {
+  const sockets = Array.from(io.sockets.sockets.values());
+  const users = new Set(sockets.map(socket => socket.userId).filter(Boolean));
+  
+  res.status(200).json({
+    totalConnections: connectionCount,
+    authenticatedUsers: users.size,
+    connectedSockets: sockets.length,
+    serverTime: new Date().toISOString(),
+    nodeVersion: process.version,
   });
 });
