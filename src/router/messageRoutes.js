@@ -13,7 +13,8 @@ import {
   deleteChat,
   deleteSingleMessage,
   getChatHeader,
-  checkBlockStatus 
+  checkBlockStatus ,
+  sendFileMessage
 
 } from '../controller/messageController.js';
 import { authenticateUser } from '../middlewares/authMiddleware.js';
@@ -24,6 +25,12 @@ import upload from '../middlewares/multer.js'; // OK
 const messageRoutes = express.Router();
 
 messageRoutes.post('/', authenticateUser, upload.array("files"), postMessage);
+messageRoutes.post(
+  "/send-file",
+  authenticateUser,
+  upload.single("file"),
+  sendFileMessage
+);
 
 
 messageRoutes.get('/', authenticateUser, getMessages);

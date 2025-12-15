@@ -132,6 +132,59 @@ export const postMessage = async (req, res) => {
   }
 };
 
+export const sendFileMessage = async (req, res) => {
+  try {
+    const senderId = req.userId;
+    const { receiverId, replyToId } = req.body;
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({ success: false, message: "File required" });
+    }
+
+    // Upload to Cloudinary
+    const uploaded = await cloudinary.uploader.upload(file.path, {
+      folder: "chat_files",
+      resource_type: "auto",
+    });
+
+    const conversationId = [String(senderId), String(receiverId)]
+      .sort()
+      .join("_");
+
+    const newMsg = await messageModel.create({
+      senderId,
+      receiverId,
+      conversationId,
+      messageText: "",
+      files: [
+        {
+          fileName: file.originalname,
+          fileUrl: uploaded.secure_url,
+          fileType: file.mimetype,
+          fileSize: file.size,
+        },
+      ],
+      replyTo: replyToId ? new mongoose.Types.ObjectId(replyToId) : null,
+      status: "sent",
+    });
+
+    const io = req.app.get("io");
+
+    let msg = await messageModel.findById(newMsg._id).populate("replyTo");
+
+    // Send message to receiver
+    io.to(String(receiverId)).emit("msg-receive", msg);
+
+    // Send confirmation to sender
+    io.to(String(senderId)).emit("msg-sent", msg);
+
+    res.status(200).json({ success: true, data: msg });
+  } catch (error) {
+    console.error("sendFileMessage error:", error);
+    res.status(500).json({ success: false, message: "Internal Error" });
+  }
+};
 
 
 
