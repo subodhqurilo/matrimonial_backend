@@ -30,7 +30,6 @@ export const postMessage = async (req, res) => {
       });
     }
 
-    // Check if receiver exists
     const receiverExists = await RegisterModel.findById(receiverId);
     if (!receiverExists) {
       return res.status(404).json({
@@ -39,7 +38,6 @@ export const postMessage = async (req, res) => {
       });
     }
 
-    // Check block status
     const currentUser = await RegisterModel.findById(senderId).select("blockedUsers");
     const isBlocked = receiverExists.blockedUsers?.includes(senderId);
     const youBlocked = currentUser?.blockedUsers?.includes(receiverId);
@@ -77,27 +75,9 @@ export const postMessage = async (req, res) => {
       status: "sent",
     });
 
-    // Populate reply message
     message = await messageModel.findById(message._id).populate("replyTo");
 
-    // Emit socket event for real-time update
-    const io = req.app.get("io");
-    if (io) {
-      // Send to receiver if online
-      io.to(String(receiverId)).emit("msg-receive", message);
-      // Send confirmation to sender
-      io.to(String(senderId)).emit("msg-sent", message);
-      
-      // Update delivery status if receiver is online
-      const onlineUsers = getOnlineUserIds();
-      if (onlineUsers.includes(String(receiverId))) {
-        await messageModel.updateOne(
-          { _id: message._id },
-          { $set: { status: "delivered" } }
-        );
-      }
-    }
-
+    // ✅ BAS RESPONSE BHEJO - SOCKET EMIT NAHI KARO
     return res.status(201).json({
       success: true,
       data: message,
@@ -125,7 +105,6 @@ export const sendFileMessage = async (req, res) => {
       });
     }
 
-    // Check if receiver exists
     const receiverExists = await RegisterModel.findById(receiverId);
     if (!receiverExists) {
       return res.status(404).json({
@@ -134,7 +113,6 @@ export const sendFileMessage = async (req, res) => {
       });
     }
 
-    // Check block status
     const currentUser = await RegisterModel.findById(senderId).select("blockedUsers");
     const isBlocked = receiverExists.blockedUsers?.includes(senderId);
     const youBlocked = currentUser?.blockedUsers?.includes(receiverId);
@@ -146,7 +124,6 @@ export const sendFileMessage = async (req, res) => {
       });
     }
 
-    // Upload to Cloudinary
     const uploaded = await cloudinary.uploader.upload(file.path, {
       folder: "chat_files",
       resource_type: "auto",
@@ -171,25 +148,9 @@ export const sendFileMessage = async (req, res) => {
       status: "sent",
     });
 
-    const io = req.app.get("io");
     let msg = await messageModel.findById(newMsg._id).populate("replyTo");
 
-    if (io) {
-      // Send message to receiver
-      io.to(String(receiverId)).emit("msg-receive", msg);
-      // Send confirmation to sender
-      io.to(String(senderId)).emit("msg-sent", msg);
-      
-      // Update delivery status if receiver is online
-      const onlineUsers = getOnlineUserIds();
-      if (onlineUsers.includes(String(receiverId))) {
-        await messageModel.updateOne(
-          { _id: msg._id },
-          { $set: { status: "delivered" } }
-        );
-      }
-    }
-
+    // ✅ BAS RESPONSE BHEJO - SOCKET EMIT NAHI KARO
     res.status(200).json({ 
       success: true, 
       data: msg 
