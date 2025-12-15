@@ -27,7 +27,9 @@ const io = new Server(server, {
       'https://matrimonial-backend-7ahc.onrender.com',
       'https://matro-main-ev8s.vercel.app',
       'https://matro-main4444-bgn8.vercel.app',
-      'https://matrimonial-lq33.vercel.app'
+      'https://matrimonial-lq33.vercel.app',
+      'https://matro-main4444-oypd.vercel.app'
+
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],

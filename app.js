@@ -32,7 +32,8 @@ app.use(cors({
     'https://matro-main-ev8s.vercel.app',
     'https://matro-main4444-bgn8.vercel.app',
     'https://matro-main4444-4wza.vercel.app',
-    'https://matrimonial-lq33.vercel.app'
+    'https://matrimonial-lq33.vercel.app',
+    'https://matro-main4444-oypd.vercel.app'
 
   ],
   credentials: true, // Only this line added
