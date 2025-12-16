@@ -1,41 +1,26 @@
 import mongoose from "mongoose";
 import { AccountRequestModel } from "../modal/accountRequestModel.js";
 import messageModel from "../modal/messageModel.js";
-
-import { getOnlineUserIds } from "../../socket.js";
+import { getOnlineUserIds, isUserOnline } from "../../socket.js";
 import RegisterModel from "../modal/register.js";
 import cloudinary from "../utils/cloudinary.js";
 
-/**
- * Utility: generate a consistent conversationId
- */
 const getConversationId = (id1, id2) => {
   return [String(id1), String(id2)].sort().join("_");
 };
 
-/**
- * POST /api/message
- * Body: { receiverId, messageText }
- * Needs authenticateUser to set req.userId
- */
 export const postMessage = async (req, res) => {
   try {
     const senderId = req.userId;
     const { receiverId, messageText, replyToId } = req.body;
 
     if (!receiverId) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "receiverId required" 
-      });
+      return res.status(400).json({ success: false, message: "receiverId required" });
     }
 
     const receiverExists = await RegisterModel.findById(receiverId);
     if (!receiverExists) {
-      return res.status(404).json({
-        success: false,
-        message: "Receiver not found",
-      });
+      return res.status(404).json({ success: false, message: "Receiver not found" });
     }
 
     const currentUser = await RegisterModel.findById(senderId).select("blockedUsers");
@@ -43,10 +28,7 @@ export const postMessage = async (req, res) => {
     const youBlocked = currentUser?.blockedUsers?.includes(receiverId);
 
     if (isBlocked || youBlocked) {
-      return res.status(403).json({
-        success: false,
-        message: "Cannot send message. User is blocked.",
-      });
+      return res.status(403).json({ success: false, message: "Cannot send message. User is blocked." });
     }
 
     const uploadedFiles = (req.files || []).map((file) => ({
@@ -57,10 +39,7 @@ export const postMessage = async (req, res) => {
     }));
 
     if (!messageText?.trim() && uploadedFiles.length === 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Text or file required" 
-      });
+      return res.status(400).json({ success: false, message: "Text or file required" });
     }
 
     const conversationId = getConversationId(senderId, receiverId);
@@ -77,18 +56,35 @@ export const postMessage = async (req, res) => {
 
     message = await messageModel.findById(message._id).populate("replyTo");
 
-    // ✅ BAS RESPONSE BHEJO - SOCKET EMIT NAHI KARO
-    return res.status(201).json({
-      success: true,
-      data: message,
-    });
+    const io = req.app.get("io");
+    if (io) {
+      const messageData = message.toObject();
+      const receiverOnline = isUserOnline(receiverId);
+      
+      if (receiverOnline) {
+        await messageModel.findByIdAndUpdate(message._id, {
+          $set: { status: "delivered", deliveredAt: new Date() }
+        });
+        messageData.status = "delivered";
+        messageData.deliveredAt = new Date();
+        
+        io.to(String(senderId)).emit("message-delivered", {
+          messageId: message._id,
+          conversationId,
+          deliveredAt: messageData.deliveredAt
+        });
+      }
 
+      io.to(String(receiverId)).emit("msg-receive", messageData);
+      io.to(String(senderId)).emit("msg-sent", messageData);
+      
+      console.log(`📨 Message sent: ${senderId} → ${receiverId} [${uploadedFiles.length} files]`);
+    }
+
+    return res.status(201).json({ success: true, data: message });
   } catch (error) {
     console.error("postMessage error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
@@ -99,18 +95,12 @@ export const sendFileMessage = async (req, res) => {
     const file = req.file;
 
     if (!file) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "File required" 
-      });
+      return res.status(400).json({ success: false, message: "File required" });
     }
 
     const receiverExists = await RegisterModel.findById(receiverId);
     if (!receiverExists) {
-      return res.status(404).json({
-        success: false,
-        message: "Receiver not found",
-      });
+      return res.status(404).json({ success: false, message: "Receiver not found" });
     }
 
     const currentUser = await RegisterModel.findById(senderId).select("blockedUsers");
@@ -118,10 +108,7 @@ export const sendFileMessage = async (req, res) => {
     const youBlocked = currentUser?.blockedUsers?.includes(receiverId);
 
     if (isBlocked || youBlocked) {
-      return res.status(403).json({
-        success: false,
-        message: "Cannot send file. User is blocked.",
-      });
+      return res.status(403).json({ success: false, message: "Cannot send file. User is blocked." });
     }
 
     const uploaded = await cloudinary.uploader.upload(file.path, {
@@ -136,38 +123,50 @@ export const sendFileMessage = async (req, res) => {
       receiverId,
       conversationId,
       messageText: "",
-      files: [
-        {
-          fileName: file.originalname,
-          fileUrl: uploaded.secure_url,
-          fileType: file.mimetype,
-          fileSize: file.size,
-        },
-      ],
+      files: [{
+        fileName: file.originalname,
+        fileUrl: uploaded.secure_url,
+        fileType: file.mimetype,
+        fileSize: file.size,
+      }],
       replyTo: replyToId ? new mongoose.Types.ObjectId(replyToId) : null,
       status: "sent",
     });
 
     let msg = await messageModel.findById(newMsg._id).populate("replyTo");
 
-    // ✅ BAS RESPONSE BHEJO - SOCKET EMIT NAHI KARO
-    res.status(200).json({ 
-      success: true, 
-      data: msg 
-    });
+    const io = req.app.get("io");
+    if (io) {
+      const messageData = msg.toObject();
+      const receiverOnline = isUserOnline(receiverId);
+      
+      if (receiverOnline) {
+        await messageModel.findByIdAndUpdate(msg._id, {
+          $set: { status: "delivered", deliveredAt: new Date() }
+        });
+        messageData.status = "delivered";
+        messageData.deliveredAt = new Date();
+        
+        io.to(String(senderId)).emit("message-delivered", {
+          messageId: msg._id,
+          conversationId,
+          deliveredAt: messageData.deliveredAt
+        });
+      }
+
+      io.to(String(receiverId)).emit("msg-receive", messageData);
+      io.to(String(senderId)).emit("msg-sent", messageData);
+      
+      console.log(`📎 File sent: ${senderId} → ${receiverId} [${file.originalname}]`);
+    }
+
+    res.status(200).json({ success: true, data: msg });
   } catch (error) {
     console.error("sendFileMessage error:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: "Internal Error" 
-    });
+    res.status(500).json({ success: false, message: "Internal Error" });
   }
 };
 
-/**
- * GET /api/message?currentUserId=<otherUserId>
- * Returns chat history via conversationId
- */
 export const getMessages = async (req, res) => {
   try {
     const userId = req.userId;
@@ -177,31 +176,23 @@ export const getMessages = async (req, res) => {
     const skip = (page - 1) * limit;
 
     if (!userId || !currentUserId) {
-      return res.status(400).json({
-        success: false,
-        message: "User IDs required",
-      });
+      return res.status(400).json({ success: false, message: "User IDs required" });
     }
 
     if (!mongoose.Types.ObjectId.isValid(currentUserId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid user id",
-      });
+      return res.status(400).json({ success: false, message: "Invalid user id" });
     }
 
     const conversationId = getConversationId(userId, currentUserId);
 
-    // Get total count for pagination
     const totalMessages = await messageModel.countDocuments({
       conversationId,
       deletedFor: { $ne: userId }
     });
 
     const messages = await messageModel
-      .find({ conversationId })
-      .notDeletedForUser(userId)
-      .populate("replyTo")
+      .find({ conversationId, deletedFor: { $ne: userId } })
+      .populate({ path: "replyTo", select: "messageText files senderId receiverId createdAt" })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -215,7 +206,7 @@ export const getMessages = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      data: messages.reverse(), // Reverse to get chronological order
+      data: messages.reverse(),
       isBlocked,
       youBlocked,
       pagination: {
@@ -228,16 +219,10 @@ export const getMessages = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in getMessages:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
+    return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
-/**
- * GET /api/message/unreadCount
- */
 export const getUnreadMessagesCount = async (req, res) => {
   try {
     const userId = req.userId;
@@ -257,55 +242,33 @@ export const getUnreadMessagesCount = async (req, res) => {
           lastMessageTime: { $max: "$createdAt" }
         },
       },
-      {
-        $sort: { lastMessageTime: -1 }
-      }
+      { $sort: { lastMessageTime: -1 } }
     ]);
 
-    res.status(200).json({
-      success: true,
-      data: unreadCounts
-    });
+    res.status(200).json({ success: true, data: unreadCounts });
   } catch (error) {
     console.error("Error in getUnreadMessagesCount:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error"
-    });
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
-/**
- * GET /api/message/online
- */
 export const getOnlineStatus = async (req, res) => {
   try {
     const userId = req.userId;
-    const onlineUserIds = getOnlineUserIds(); // All online users
+    const onlineUserIds = getOnlineUserIds();
 
-    // Fetch current user (to check their blocked list)
     const me = await RegisterModel.findById(userId).select("blockedUsers");
 
     let finalOnlineUsers = onlineUserIds;
 
-    // Remove users that YOU blocked
     if (me?.blockedUsers?.length > 0) {
-      finalOnlineUsers = onlineUserIds.filter(
-        (id) => !me.blockedUsers.includes(id)
-      );
+      finalOnlineUsers = onlineUserIds.filter((id) => !me.blockedUsers.includes(id));
     }
 
-    res.status(200).json({
-      success: true,
-      data: finalOnlineUsers,
-    });
-
+    res.status(200).json({ success: true, data: finalOnlineUsers });
   } catch (error) {
     console.error("Error in getOnlineStatus:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal error",
-    });
+    res.status(500).json({ success: false, message: "Internal error" });
   }
 };
 
@@ -315,10 +278,7 @@ export const checkBlockStatus = async (req, res) => {
     const otherUserId = req.params.otherUserId;
 
     if (!otherUserId) {
-      return res.status(400).json({
-        success: false,
-        message: "otherUserId is required",
-      });
+      return res.status(400).json({ success: false, message: "otherUserId is required" });
     }
 
     const me = await RegisterModel.findById(userId).select("blockedUsers");
@@ -327,17 +287,10 @@ export const checkBlockStatus = async (req, res) => {
     const iBlocked = me?.blockedUsers?.includes(otherUserId);
     const blockedMe = other?.blockedUsers?.includes(userId);
 
-    return res.status(200).json({
-      success: true,
-      data: { iBlocked, blockedMe },
-    });
-
+    return res.status(200).json({ success: true, data: { iBlocked, blockedMe } });
   } catch (error) {
     console.error("Block status error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-    });
+    res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
 
@@ -345,24 +298,16 @@ export const getAllUser = async (req, res) => {
   try {
     const userId = req.userId;
     if (!userId) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "User ID required" 
-      });
+      return res.status(400).json({ success: false, message: "User ID required" });
     }
 
-    // Find accepted requests involving this user
     const acceptedRequests = await AccountRequestModel.find({
       status: "accepted",
-      $or: [
-        { requesterId: userId },
-        { receiverId: userId }
-      ]
+      $or: [{ requesterId: userId }, { receiverId: userId }]
     })
       .populate("requesterId", "firstName lastName profileImage")
       .populate("receiverId", "firstName lastName profileImage");
 
-    // Extract only the "other" user from each request
     const users = acceptedRequests
       .map(reqDoc => {
         if (!reqDoc?.requesterId || !reqDoc?.receiverId) return null;
@@ -372,16 +317,10 @@ export const getAllUser = async (req, res) => {
       })
       .filter(Boolean);
 
-    res.status(200).json({ 
-      success: true, 
-      data: users 
-    });
+    res.status(200).json({ success: true, data: users });
   } catch (error) {
     console.error("Error in getAllUsers:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: "Internal server error" 
-    });
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
@@ -391,10 +330,7 @@ export const markMessagesAsRead = async (req, res) => {
     const { otherUserId } = req.body;
 
     if (!userId || !otherUserId) {
-      return res.status(400).json({
-        success: false,
-        message: "User IDs required"
-      });
+      return res.status(400).json({ success: false, message: "User IDs required" });
     }
 
     const conversationId = getConversationId(userId, otherUserId);
@@ -406,15 +342,9 @@ export const markMessagesAsRead = async (req, res) => {
         status: { $ne: "read" },
         deletedFor: { $ne: new mongoose.Types.ObjectId(String(userId)) }
       },
-      {
-        $set: { 
-          status: "read",
-          readAt: new Date()
-        }
-      }
+      { $set: { status: "read", readAt: new Date() } }
     );
 
-    // Emit socket event for read receipt
     const io = req.app.get("io");
     if (io && result.modifiedCount > 0) {
       io.to(String(otherUserId)).emit("messages-read", {
@@ -424,39 +354,23 @@ export const markMessagesAsRead = async (req, res) => {
       });
     }
 
-    return res.status(200).json({
-      success: true,
-      updated: result.modifiedCount
-    });
-
+    return res.status(200).json({ success: true, updated: result.modifiedCount });
   } catch (error) {
     console.error("Error in markMessagesAsRead:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error"
-    });
+    return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
-/**
- * GET /api/message/allUserGet
- */
 export const getAllRequestsExceptMine = async (req, res) => {
   try {
     const userId = req.userId;
     if (!userId) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "User ID required" 
-      });
+      return res.status(400).json({ success: false, message: "User ID required" });
     }
 
     const requests = await AccountRequestModel.find({
       status: "accepted",
-      $or: [
-        { requesterId: { $ne: userId } },
-        { receiverId: { $ne: userId } }
-      ]
+      $or: [{ requesterId: { $ne: userId } }, { receiverId: { $ne: userId } }]
     })
       .populate("requesterId", "firstName lastName profileImage")
       .populate("receiverId", "firstName lastName profileImage");
@@ -471,16 +385,10 @@ export const getAllRequestsExceptMine = async (req, res) => {
       })
       .filter(Boolean);
 
-    res.status(200).json({ 
-      success: true, 
-      data: otherUsers 
-    });
+    res.status(200).json({ success: true, data: otherUsers });
   } catch (error) {
     console.error("Error in getAllRequestsExceptMine:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: "Internal server error" 
-    });
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
@@ -491,7 +399,6 @@ export const getChatList = async (req, res) => {
 
     const onlineIds = new Set(getOnlineUserIds() || []);
 
-    // Fetch accepted/pending relationships
     const relationships = await AccountRequestModel.find({
       $or: [{ requesterId: userId }, { receiverId: userId }],
     })
@@ -507,7 +414,6 @@ export const getChatList = async (req, res) => {
         ? reqDoc.receiverId
         : reqDoc.requesterId;
 
-      // Skip if either user is blocked
       const otherBlocked = other.blockedUsers?.includes(userId);
       const currentUser = String(reqDoc.requesterId._id) === String(userId)
         ? reqDoc.requesterId
@@ -519,13 +425,10 @@ export const getChatList = async (req, res) => {
       const otherId = String(other._id);
       const conversationId = getConversationId(userId, otherId);
 
-      // Last message
       const lastMsg = await messageModel
-        .findOne({ conversationId })
-        .notDeletedForUser(userId)
+        .findOne({ conversationId, deletedFor: { $ne: userId } })
         .sort({ createdAt: -1 });
 
-      // Unread count
       const unread = await messageModel.countDocuments({
         conversationId,
         receiverId: userId,
@@ -548,7 +451,6 @@ export const getChatList = async (req, res) => {
       finalUsers.push(obj);
     }
 
-    // FILTERING
     if (filter === "accepted") {
       finalUsers = finalUsers.filter((u) => u.status === "accepted");
     }
@@ -562,25 +464,16 @@ export const getChatList = async (req, res) => {
     if (filter === "call") {
       const callKeywords = ["call", "mobile", "phone", "number"];
       finalUsers = finalUsers.filter((u) =>
-        callKeywords.some((k) =>
-          u.lastMessage?.toLowerCase().includes(k)
-        )
+        callKeywords.some((k) => u.lastMessage?.toLowerCase().includes(k))
       );
     }
 
-    // Sorting by last message time
     finalUsers.sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
 
-    return res.status(200).json({
-      success: true,
-      data: finalUsers,
-    });
+    return res.status(200).json({ success: true, data: finalUsers });
   } catch (error) {
     console.error("❌ Error in getChatList:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: "Internal Server Error" 
-    });
+    res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
 
@@ -590,35 +483,21 @@ export const deleteSingleMessage = async (req, res) => {
     const { messageId } = req.body;
 
     if (!messageId) {
-      return res.status(400).json({
-        success: false,
-        message: "Message ID required",
-      });
+      return res.status(400).json({ success: false, message: "Message ID required" });
     }
 
     const message = await messageModel.findById(messageId);
 
     if (!message) {
-      return res.status(404).json({
-        success: false,
-        message: "Message not found",
-      });
+      return res.status(404).json({ success: false, message: "Message not found" });
     }
 
-    // Only sender can delete own sent message
     if (String(message.senderId) !== String(userId)) {
-      return res.status(403).json({
-        success: false,
-        message: "You can delete only your own messages",
-      });
+      return res.status(403).json({ success: false, message: "You can delete only your own messages" });
     }
 
-    // Soft delete using deletedFor
-    await messageModel.findByIdAndUpdate(messageId, {
-      $addToSet: { deletedFor: userId },
-    });
+    await messageModel.findByIdAndUpdate(messageId, { $addToSet: { deletedFor: userId } });
 
-    // Emit socket event for message deletion
     const io = req.app.get("io");
     if (io) {
       io.to(String(message.receiverId)).emit("message-deleted", {
@@ -627,59 +506,43 @@ export const deleteSingleMessage = async (req, res) => {
       });
     }
 
-    res.status(200).json({
-      success: true,
-      message: "Message deleted",
-    });
+    res.status(200).json({ success: true, message: "Message deleted" });
   } catch (error) {
     console.error("Error in deleteSingleMessage:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: "Internal Server Error" 
-    });
+    res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
 
-// export const deleteChat = async (req, res) => {
-//   try {
-//     const userId = req.userId;
-//     const { otherUserId } = req.body;
+export const deleteChat = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { otherUserId } = req.body;
 
-//     if (!otherUserId) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "otherUserId required",
-//       });
-//     }
+    if (!otherUserId) {
+      return res.status(400).json({ success: false, message: "otherUserId required" });
+    }
 
-//     const conversationId = getConversationId(userId, otherUserId);
+    const conversationId = getConversationId(userId, otherUserId);
 
-//     await messageModel.updateMany(
-//       { conversationId },
-//       { $addToSet: { deletedFor: userId } }
-//     );
+    await messageModel.updateMany(
+      { conversationId },
+      { $addToSet: { deletedFor: userId } }
+    );
 
-//     // Emit socket event for chat deletion
-//     const io = req.app.get("io");
-//     if (io) {
-//       io.to(String(otherUserId)).emit("chat-deleted", {
-//         conversationId,
-//         deletedBy: userId
-//       });
-//     }
+    const io = req.app.get("io");
+    if (io) {
+      io.to(String(otherUserId)).emit("chat-deleted", {
+        conversationId,
+        deletedBy: userId
+      });
+    }
 
-//     res.status(200).json({
-//       success: true,
-//       message: "Chat deleted for you",
-//     });
-//   } catch (error) {
-//     console.error("Error in deleteChat:", error);
-//     res.status(500).json({ 
-//       success: false, 
-//       message: "Internal Server Error" 
-//     });
-//   }
-// };
+    res.status(200).json({ success: true, message: "Chat deleted for you" });
+  } catch (error) {
+    console.error("Error in deleteChat:", error);
+    res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
 
 export const blockUser = async (req, res) => {
   try {
@@ -687,17 +550,13 @@ export const blockUser = async (req, res) => {
     const { otherUserId } = req.body;
 
     if (!otherUserId) {
-      return res.status(400).json({
-        success: false,
-        message: "otherUserId is required",
-      });
+      return res.status(400).json({ success: false, message: "otherUserId is required" });
     }
 
     await RegisterModel.findByIdAndUpdate(userId, {
       $addToSet: { blockedUsers: otherUserId },
     });
 
-    // Socket event for blocking
     const io = req.app.get("io");
     if (io) {
       io.to(String(otherUserId)).emit("user-blocked", {
@@ -706,16 +565,10 @@ export const blockUser = async (req, res) => {
       });
     }
 
-    return res.status(200).json({
-      success: true,
-      message: "User blocked successfully",
-    });
+    return res.status(200).json({ success: true, message: "User blocked successfully" });
   } catch (error) {
     console.error("Block Error:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: "Internal Server Error" 
-    });
+    res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
 
@@ -725,17 +578,13 @@ export const unblockUser = async (req, res) => {
     const { otherUserId } = req.body;
 
     if (!otherUserId) {
-      return res.status(400).json({
-        success: false,
-        message: "otherUserId is required",
-      });
+      return res.status(400).json({ success: false, message: "otherUserId is required" });
     }
 
     await RegisterModel.findByIdAndUpdate(userId, {
       $pull: { blockedUsers: otherUserId },
     });
 
-    // Socket event for unblocking
     const io = req.app.get("io");
     if (io) {
       io.to(String(otherUserId)).emit("user-unblocked", {
@@ -744,51 +593,33 @@ export const unblockUser = async (req, res) => {
       });
     }
 
-    return res.status(200).json({
-      success: true,
-      message: "User unblocked successfully",
-    });
+    return res.status(200).json({ success: true, message: "User unblocked successfully" });
   } catch (error) {
     console.error("Unblock Error:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: "Internal Server Error" 
-    });
+    res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
 
-/**
- * GET /api/message/chatHeader?userId=<otherUserId>
- */
 export const getChatHeader = async (req, res) => {
   try {
     const { userId } = req.query;
     const currentUserId = req.userId;
 
     if (!userId) {
-      return res.status(400).json({
-        success: false,
-        message: "userId is required",
-      });
+      return res.status(400).json({ success: false, message: "userId is required" });
     }
 
-    // Fetch user basic details
     const user = await RegisterModel.findById(userId).select(
       "firstName lastName profileImage blockedUsers lastSeen"
     );
 
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
+      return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    // Online status
     const onlineUsersList = getOnlineUserIds();
     const isOnline = onlineUsersList.includes(String(userId));
 
-    // Check block status
     const currentUser = await RegisterModel.findById(currentUserId).select("blockedUsers");
     const iBlocked = currentUser?.blockedUsers?.includes(userId);
     const blockedMe = user?.blockedUsers?.includes(currentUserId);
@@ -807,26 +638,17 @@ export const getChatHeader = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in getChatHeader:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
-/**
- * GET /api/message/search?query=<searchTerm>
- */
 export const searchMessages = async (req, res) => {
   try {
     const userId = req.userId;
     const { query, conversationId } = req.query;
 
     if (!query) {
-      return res.status(400).json({
-        success: false,
-        message: "Search query required",
-      });
+      return res.status(400).json({ success: false, message: "Search query required" });
     }
 
     let searchConditions = {
@@ -840,7 +662,6 @@ export const searchMessages = async (req, res) => {
     if (conversationId) {
       searchConditions.conversationId = conversationId;
     } else {
-      // Search in all conversations where user is participant
       const userConversations = await messageModel.distinct("conversationId", {
         $or: [{ senderId: userId }, { receiverId: userId }]
       });
@@ -854,56 +675,10 @@ export const searchMessages = async (req, res) => {
       .limit(50)
       .lean();
 
-    res.status(200).json({
-      success: true,
-      data: messages,
-    });
+    res.status(200).json({ success: true, data: messages });
   } catch (error) {
     console.error("Error in searchMessages:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
-  }
-};
-export const deleteChat = async (req, res) => {
-  try {
-    const userId = req.userId;
-    const { otherUserId } = req.body;
-
-    if (!otherUserId) {
-      return res.status(400).json({
-        success: false,
-        message: "otherUserId required",
-      });
-    }
-
-    const conversationId = getConversationId(userId, otherUserId);
-
-    await messageModel.updateMany(
-      { conversationId },
-      { $addToSet: { deletedFor: userId } }
-    );
-
-    // Emit socket event for chat deletion
-    const io = req.app.get("io");
-    if (io) {
-      io.to(String(otherUserId)).emit("chat-deleted", {
-        conversationId,
-        deletedBy: userId
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: "Chat deleted for you",
-    });
-  } catch (error) {
-    console.error("Error in deleteChat:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: "Internal Server Error" 
-    });
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
@@ -913,46 +688,30 @@ export const getConversationInfo = async (req, res) => {
     const { otherUserId } = req.params;
 
     if (!otherUserId) {
-      return res.status(400).json({
-        success: false,
-        message: "otherUserId required",
-      });
+      return res.status(400).json({ success: false, message: "otherUserId required" });
     }
 
     const conversationId = getConversationId(userId, otherUserId);
 
-    // Get conversation stats
     const [totalMessages, unreadCount, lastMessage, firstMessage] = await Promise.all([
-      messageModel.countDocuments({
-        conversationId,
-        deletedFor: { $ne: userId }
-      }),
+      messageModel.countDocuments({ conversationId, deletedFor: { $ne: userId } }),
       messageModel.countDocuments({
         conversationId,
         receiverId: userId,
         status: { $ne: "read" },
         deletedFor: { $ne: userId }
       }),
-      messageModel.findOne({
-        conversationId,
-        deletedFor: { $ne: userId }
-      }).sort({ createdAt: -1 }),
-      messageModel.findOne({
-        conversationId,
-        deletedFor: { $ne: userId }
-      }).sort({ createdAt: 1 })
+      messageModel.findOne({ conversationId, deletedFor: { $ne: userId } }).sort({ createdAt: -1 }),
+      messageModel.findOne({ conversationId, deletedFor: { $ne: userId } }).sort({ createdAt: 1 })
     ]);
 
-    // Get user info
     const otherUser = await RegisterModel.findById(otherUserId)
       .select("firstName lastName profileImage blockedUsers onlineStatus lastSeen");
 
-    // Check block status
     const me = await RegisterModel.findById(userId).select("blockedUsers");
     const iBlocked = me?.blockedUsers?.includes(otherUserId);
     const blockedMe = otherUser?.blockedUsers?.includes(userId);
 
-    // Check online status
     const onlineUsers = getOnlineUserIds();
     const isOnline = onlineUsers.includes(String(otherUserId));
 
@@ -974,26 +733,16 @@ export const getConversationInfo = async (req, res) => {
           firstMessageTime: firstMessage?.createdAt || null,
           hasFiles: lastMessage?.files?.length > 0
         },
-        blockStatus: {
-          iBlocked,
-          blockedMe
-        },
+        blockStatus: { iBlocked, blockedMe },
         canCommunicate: !iBlocked && !blockedMe
       }
     });
   } catch (error) {
     console.error("Error in getConversationInfo:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
-/**
- * POST /api/message/clearAllUnread
- * Clear all unread messages for a user
- */
 export const clearAllUnread = async (req, res) => {
   try {
     const userId = req.userId;
@@ -1004,38 +753,24 @@ export const clearAllUnread = async (req, res) => {
         status: { $ne: "read" },
         deletedFor: { $ne: userId }
       },
-      {
-        $set: { 
-          status: "read",
-          readAt: new Date()
-        }
-      }
+      { $set: { status: "read", readAt: new Date() } }
     );
 
-    // Emit socket event for all conversations
     const io = req.app.get("io");
     if (io && result.modifiedCount > 0) {
-      // Get all unique senders whose messages were marked as read
       const conversations = await messageModel.aggregate([
         {
           $match: {
             receiverId: new mongoose.Types.ObjectId(userId),
             status: "read",
-            readAt: { $gte: new Date(Date.now() - 10000) } // Last 10 seconds
+            readAt: { $gte: new Date(Date.now() - 10000) }
           }
         },
-        {
-          $group: {
-            _id: "$senderId"
-          }
-        }
+        { $group: { _id: "$senderId" } }
       ]);
 
-      // Notify each sender
       conversations.forEach(conv => {
-        io.to(String(conv._id)).emit("all-messages-read", {
-          readerId: userId
-        });
+        io.to(String(conv._id)).emit("all-messages-read", { readerId: userId });
       });
     }
 
@@ -1044,12 +779,8 @@ export const clearAllUnread = async (req, res) => {
       updated: result.modifiedCount,
       message: `Marked ${result.modifiedCount} messages as read`
     });
-
   } catch (error) {
     console.error("Error in clearAllUnread:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error"
-    });
+    return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };

@@ -22,17 +22,17 @@ export const socketHandler = (io) => {
     /* =====================================================
         1️⃣ USER ONLINE JOIN
     ===================================================== */
-    socket.on("add-user", (userId) => {
-      if (!userId) {
+    socket.on("add-user", async (incomingUserId) => {
+      if (!incomingUserId) {
         console.error("⚠️ No userId provided for add-user");
         socket.emit("error", { message: "User ID is required" });
         return;
       }
 
       try {
-        // Store userId on socket
-        socket.userId = userId;
-        userId = userId;
+        // Store userId on socket and outer scope
+        socket.userId = incomingUserId;
+        userId = incomingUserId;
 
         // Add to online users
         if (!onlineUsers.has(userId)) {
@@ -46,7 +46,7 @@ export const socketHandler = (io) => {
         console.log(`🟢 User online: ${userId} (socket: ${socket.id})`);
         
         // Update user status in database
-        RegisterModel.findByIdAndUpdate(userId, {
+        await RegisterModel.findByIdAndUpdate(userId, {
           $set: { onlineStatus: "online", lastSeen: null }
         }, { new: true }).catch(err => 
           console.error("Error updating online status:", err)
@@ -74,12 +74,18 @@ export const socketHandler = (io) => {
     });
 
     /* =====================================================
-        2️⃣ SEND MESSAGE (TEXT)
+        2️⃣ SEND MESSAGE (TEXT/FILES)
     ===================================================== */
-    socket.on("send-msg", async ({ from, to, messageText, replyToId, tempId }) => {
+    socket.on("send-msg", async ({ from, to, messageText, replyToId, tempId, files }) => {
       try {
-        if (!from || !to || !messageText) {
+        if (!from || !to) {
           socket.emit("error", { message: "Invalid message data" });
+          return;
+        }
+
+        // Allow empty text if files exist
+        if (!messageText?.trim() && (!files || files.length === 0)) {
+          socket.emit("error", { message: "Message text or files required" });
           return;
         }
 
@@ -90,9 +96,9 @@ export const socketHandler = (io) => {
           senderId: new mongoose.Types.ObjectId(from),
           receiverId: new mongoose.Types.ObjectId(to),
           conversationId,
-          messageText: messageText.trim(),
+          messageText: messageText?.trim() || "",
           replyTo: replyToId ? new mongoose.Types.ObjectId(replyToId) : null,
-          files: [],
+          files: files || [],
           status: "sent",
           tempId,
         });
@@ -104,6 +110,9 @@ export const socketHandler = (io) => {
             .exec();
         }
 
+        const messageData = message.toObject();
+        messageData.tempId = tempId; // Include tempId for client-side matching
+
         const isReceiverOnline = onlineUsers.has(String(to));
 
         // Update status if receiver is online
@@ -111,33 +120,40 @@ export const socketHandler = (io) => {
           await messageModel.findByIdAndUpdate(message._id, {
             $set: { status: "delivered", deliveredAt: new Date() }
           });
-          message.status = "delivered";
-          message.deliveredAt = new Date();
+          messageData.status = "delivered";
+          messageData.deliveredAt = new Date();
           
           // Notify sender about delivery
           io.to(String(from)).emit("message-delivered", {
             messageId: message._id,
             conversationId,
-            deliveredAt: message.deliveredAt
+            deliveredAt: messageData.deliveredAt
           });
         }
 
         // Send to receiver (if not self-message)
         if (String(from) !== String(to)) {
-          io.to(String(to)).emit("msg-receive", message);
+          io.to(String(to)).emit("msg-receive", messageData);
         }
 
         // Send confirmation to sender
-        io.to(String(from)).emit("msg-sent", message);
+        io.to(String(from)).emit("msg-sent", messageData);
 
-        console.log(`📨 ${from} → ${to}: "${messageText.substring(0, 30)}..."`);
+        const msgPreview = messageText?.substring(0, 30) || "[File/Media]";
+        console.log(`📨 ${from} → ${to}: "${msgPreview}..." [${files?.length || 0} files]`);
         
         // Stop typing indicator
+        const convId = getConversationId(from, to);
+        if (typingUsers.has(convId)) {
+          clearTimeout(typingUsers.get(convId).timeout);
+          typingUsers.delete(convId);
+        }
         io.to(String(to)).emit("user-stop-typing", { from });
 
       } catch (error) {
         console.error("send-msg error:", error);
-        socket.emit("errorMessage", { 
+        socket.emit("message-error", { 
+          tempId,
           error: "Message send failed",
           details: error.message 
         });
@@ -160,11 +176,11 @@ export const socketHandler = (io) => {
         clearTimeout(typingUsers.get(conversationId).timeout);
       }
 
-      // Set new timeout
+      // Set new timeout (3 seconds)
       const timeout = setTimeout(() => {
         typingUsers.delete(conversationId);
         io.to(String(to)).emit("user-stop-typing", { from });
-      }, 2000);
+      }, 3000);
 
       typingUsers.set(conversationId, { userId: from, timeout });
       
@@ -200,7 +216,10 @@ export const socketHandler = (io) => {
         const conversationId = getConversationId(from, to);
 
         const messages = await messageModel
-          .find({ conversationId })
+          .find({ 
+            conversationId,
+            deletedFor: { $ne: from }
+          })
           .populate("replyTo")
           .sort({ createdAt: 1 })
           .skip(skip)
@@ -229,6 +248,7 @@ export const socketHandler = (io) => {
             conversationId,
             receiverId: new mongoose.Types.ObjectId(readerId),
             status: { $ne: "read" },
+            deletedFor: { $ne: new mongoose.Types.ObjectId(readerId) }
           },
           { 
             $set: { 
