@@ -111,21 +111,16 @@ export const sendFileMessage = async (req, res) => {
       return res.status(403).json({ success: false, message: "Cannot send file. User is blocked." });
     }
 
-    const uploaded = await cloudinary.uploader.upload(file.path, {
-      folder: "chat_files",
-      resource_type: "auto",
-    });
-
     const conversationId = getConversationId(senderId, receiverId);
 
-    const newMsg = await messageModel.create({
+    const msg = await messageModel.create({
       senderId,
       receiverId,
       conversationId,
       messageText: "",
       files: [{
         fileName: file.originalname,
-        fileUrl: uploaded.secure_url,
+        fileUrl: file.path,      // ✅ ALREADY cloudinary URL
         fileType: file.mimetype,
         fileSize: file.size,
       }],
@@ -133,39 +128,22 @@ export const sendFileMessage = async (req, res) => {
       status: "sent",
     });
 
-    let msg = await messageModel.findById(newMsg._id).populate("replyTo");
+    const populatedMsg = await messageModel.findById(msg._id).populate("replyTo");
 
     const io = req.app.get("io");
     if (io) {
-      const messageData = msg.toObject();
-      const receiverOnline = isUserOnline(receiverId);
-      
-      if (receiverOnline) {
-        await messageModel.findByIdAndUpdate(msg._id, {
-          $set: { status: "delivered", deliveredAt: new Date() }
-        });
-        messageData.status = "delivered";
-        messageData.deliveredAt = new Date();
-        
-        io.to(String(senderId)).emit("message-delivered", {
-          messageId: msg._id,
-          conversationId,
-          deliveredAt: messageData.deliveredAt
-        });
-      }
-
-      io.to(String(receiverId)).emit("msg-receive", messageData);
-      io.to(String(senderId)).emit("msg-sent", messageData);
-      
-      console.log(`📎 File sent: ${senderId} → ${receiverId} [${file.originalname}]`);
+      io.to(String(receiverId)).emit("msg-receive", populatedMsg);
+      io.to(String(senderId)).emit("msg-sent", populatedMsg);
     }
 
-    res.status(200).json({ success: true, data: msg });
+    return res.status(200).json({ success: true, data: populatedMsg });
+
   } catch (error) {
     console.error("sendFileMessage error:", error);
-    res.status(500).json({ success: false, message: "Internal Error" });
+    return res.status(500).json({ success: false, message: "Internal Error" });
   }
 };
+
 
 export const getMessages = async (req, res) => {
   try {
