@@ -29,7 +29,8 @@ const io = new Server(server, {
       'https://matro-main4444-bgn8.vercel.app',
       'https://matrimonial-lq33.vercel.app',
       'https://matro-main4444-oypd.vercel.app',
-      'https://matro-main4444-swb3.vercel.app'
+      'https://matro-main4444-swb3.vercel.app',
+      'https://matrimonial-ency.vercel.app'
 
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
