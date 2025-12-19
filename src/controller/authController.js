@@ -313,7 +313,7 @@ export const registerDetails = async (req, res) => {
       "ownHouse",
       "ownCar",
       "openToPets",
-      "casteNoBar"
+      "casteNoBar",
     ];
 
     booleanFields.forEach((field) => {
@@ -335,7 +335,7 @@ export const registerDetails = async (req, res) => {
       adhaarCard: {
         frontImage: adhaarFront || user.adhaarCard?.frontImage || null,
         backImage: adhaarBack || user.adhaarCard?.backImage || null,
-      }
+      },
     };
 
     // Save updated user
@@ -345,12 +345,42 @@ export const registerDetails = async (req, res) => {
       { new: true }
     );
 
+    /* =====================================================
+       🔔 ADMIN NOTIFICATION (ADDED ONLY)
+    ===================================================== */
+
+    const adminMessage =
+      "A user has submitted profile details and Aadhaar documents for verification.";
+
+    // 🔔 Save notification for ADMIN (DB)
+    await NotificationModel.create({
+      userId: "ADMIN", // ya tumhare admin userId / role based logic
+      message: adminMessage,
+      type: "verification-request",
+      fromUser: userId,
+    });
+
+    // 🔴 Socket → ADMIN ROOM
+    const io = req.app.get("io");
+    if (io) {
+      io.to("admin").emit("newNotification", {
+        title: "Verification Required",
+        message: adminMessage,
+        type: "verification-request",
+        userId,
+        createdAt: new Date(),
+      });
+    }
+
+    /* =====================================================
+       ✅ RESPONSE — SAME (NO CHANGE)
+    ===================================================== */
+
     return res.status(200).json({
       success: true,
       message: "User profile updated successfully",
       data: updatedUser,
     });
-
   } catch (error) {
     console.error("RegisterDetails Error:", error);
     res.status(500).json({
@@ -360,6 +390,7 @@ export const registerDetails = async (req, res) => {
     });
   }
 };
+
 
 
 

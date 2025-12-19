@@ -922,10 +922,9 @@ export const updateUserById = async (req, res) => {
       "profileFor",
       "verification",
       "isMobileVerified",
-      "lastLoginAt"
+      "lastLoginAt",
     ];
 
-    // Filter only allowed keys
     const filteredUpdate = {};
     for (let key in updateFields) {
       if (allowedFields.includes(key)) {
@@ -938,7 +937,6 @@ export const updateUserById = async (req, res) => {
     // ------------------------------------
     if (filteredUpdate.adminApprovel) {
       const val = filteredUpdate.adminApprovel.toLowerCase();
-
       const validStatus = ["approved", "pending", "reject", "blocked"];
 
       if (!validStatus.includes(val)) {
@@ -976,8 +974,54 @@ export const updateUserById = async (req, res) => {
       });
     }
 
+    /* =====================================================
+       🔔 NOTIFICATION (ADDED ONLY)
+    ===================================================== */
+
+    let notificationMessage = "Your profile information has been updated.";
+
+    if (filteredUpdate.adminApprovel) {
+      const statusMap = {
+        approved: "Your profile has been approved.",
+        pending: "Your profile status has been set to pending.",
+        reject: "Your profile has been rejected.",
+        blocked: "Your profile has been blocked.",
+      };
+
+      notificationMessage =
+        statusMap[filteredUpdate.adminApprovel] || notificationMessage;
+    }
+
+    // 🔔 Save notification in DB
+    await NotificationModel.create({
+      userId,
+      message: notificationMessage,
+      type: "profile-update",
+      fromUser: req.userId || null,
+    });
+
+    // 📱 Expo Push
+    if (updatedUser?.expoPushToken) {
+      sendExpoPush(
+        updatedUser.expoPushToken,
+        "Profile Update",
+        notificationMessage
+      ).catch(() => {});
+    }
+
+    // 🔴 Socket
+    const io = req.app.get("io");
+    if (io) {
+      io.to(String(userId)).emit("newNotification", {
+        title: "Profile Update",
+        message: notificationMessage,
+        type: "profile-update",
+        createdAt: new Date(),
+      });
+    }
+
     // ------------------------------------
-    // 🎨 CLEAN CLEAN RESPONSE
+    // 🎨 CLEAN CLEAN RESPONSE (SAME)
     // ------------------------------------
     const formatted = {
       id: updatedUser._id,
@@ -997,7 +1041,6 @@ export const updateUserById = async (req, res) => {
       message: "User updated successfully",
       data: formatted,
     });
-
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -1006,6 +1049,7 @@ export const updateUserById = async (req, res) => {
     });
   }
 };
+
 
 
 
@@ -1542,35 +1586,71 @@ export const updateReportStatus = async (req, res) => {
 
     // 🔥 APPROVED → BLOCK USER + BLOCK REPORT
     if (status === "approved") {
-
-      // USER BLOCK
       updatedUser = await RegisterModel.findByIdAndUpdate(
         report.reportedUser,
         { adminApprovel: "blocked" },
         { new: true }
       );
 
-      // REPORT STATUS ALSO BLOCKED
       finalReportStatus = "blocked";
     }
 
     // 🔥 REJECTED → APPROVE USER + REPORT ALSO APPROVED
     if (status === "rejected") {
-
-      // USER APPROVED
       updatedUser = await RegisterModel.findByIdAndUpdate(
         report.reportedUser,
         { adminApprovel: "approved" },
         { new: true }
       );
 
-      // REPORT STATUS ALSO APPROVED
       finalReportStatus = "approved";
     }
 
     // Save final report status
     report.status = finalReportStatus;
     await report.save();
+
+    /* =====================================================
+       🔔 NOTIFICATION (ADDED ONLY)
+    ===================================================== */
+
+    const notificationMessage =
+      finalReportStatus === "blocked"
+        ? "Your account has been blocked due to a reported violation."
+        : "A report against your account was reviewed and rejected.";
+
+    // 🔔 Save notification in DB
+    await NotificationModel.create({
+      userId: report.reportedUser,
+      message: notificationMessage,
+      type: "report-status-update",
+      fromUser: req.userId || null, // admin
+    });
+
+    // 📱 Expo Push
+    if (updatedUser?.expoPushToken) {
+      sendExpoPush(
+        updatedUser.expoPushToken,
+        "Report Update",
+        notificationMessage
+      ).catch(() => {});
+    }
+
+    // 🔴 Socket
+    const io = req.app.get("io");
+    if (io) {
+      io.to(String(report.reportedUser)).emit("newNotification", {
+        title: "Report Update",
+        message: notificationMessage,
+        type: "report-status-update",
+        reportId,
+        createdAt: new Date(),
+      });
+    }
+
+    /* =====================================================
+       ⚠️ RESPONSE — SAME (NO CHANGE)
+    ===================================================== */
 
     return res.status(200).json({
       success: true,
@@ -1582,7 +1662,6 @@ export const updateReportStatus = async (req, res) => {
       user: updatedUser,
       userStatus: updatedUser?.adminApprovel,
     });
-
   } catch (err) {
     console.error("Error in updateReportStatus:", err);
     return res.status(500).json({
@@ -1592,6 +1671,7 @@ export const updateReportStatus = async (req, res) => {
     });
   }
 };
+
 
 
 
@@ -1654,11 +1734,11 @@ export const updateUserStatus = async (req, res) => {
   const { adminApprovel } = req.body;
 
   // Validation
-  const allowedStatus = ['approved', 'pending', 'reject'];
+  const allowedStatus = ["approved", "pending", "reject"];
   if (!allowedStatus.includes(adminApprovel)) {
     return res.status(400).json({
       success: false,
-      message: 'Invalid status value. Allowed: approved, pending, reject'
+      message: "Invalid status value. Allowed: approved, pending, reject",
     });
   }
 
@@ -1672,24 +1752,68 @@ export const updateUserStatus = async (req, res) => {
     if (!updatedUser) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
-    res.status(200).json({
-      success: true,
-      message: 'User verification status updated',
-      user: updatedUser
+    /* =====================================================
+       🔔 NOTIFICATION (ADDED ONLY)
+    ===================================================== */
+
+    const statusMessageMap = {
+      approved: "Your profile has been approved by admin.",
+      pending: "Your profile status has been set to pending.",
+      reject: "Your profile has been rejected by admin.",
+    };
+
+    const notificationMessage = statusMessageMap[adminApprovel];
+
+    // 🔔 Save notification in DB
+    await NotificationModel.create({
+      userId: id,
+      message: notificationMessage,
+      type: "admin-status-update",
+      fromUser: req.userId || null, // admin
     });
 
+    // 📱 Expo Push
+    if (updatedUser?.expoPushToken) {
+      sendExpoPush(
+        updatedUser.expoPushToken,
+        "Profile Status Update",
+        notificationMessage
+      ).catch(() => {});
+    }
+
+    // 🔴 Socket
+    const io = req.app.get("io");
+    if (io) {
+      io.to(String(id)).emit("newNotification", {
+        title: "Profile Status Update",
+        message: notificationMessage,
+        type: "admin-status-update",
+        createdAt: new Date(),
+      });
+    }
+
+    /* =====================================================
+       ✅ RESPONSE — SAME (NO CHANGE)
+    ===================================================== */
+
+    res.status(200).json({
+      success: true,
+      message: "User verification status updated",
+      user: updatedUser,
+    });
   } catch (error) {
-    console.error('Error updating user status:', error.message);
+    console.error("Error updating user status:", error.message);
     res.status(500).json({
       success: false,
-      message: 'Server Error'
+      message: "Server Error",
     });
   }
 };
+
 
 
 
@@ -2006,13 +2130,16 @@ export const verifyAadhaar = async (req, res) => {
 
     const user = await RegisterModel.findById(userId);
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
     }
 
     if (!user.adhaarCard?.frontImage || !user.adhaarCard?.backImage) {
       return res.status(400).json({
         success: false,
-        message: 'Aadhaar images are required to verify.',
+        message: "Aadhaar images are required to verify.",
       });
     }
 
@@ -2020,18 +2147,57 @@ export const verifyAadhaar = async (req, res) => {
     user.adhaarCard.isVerified = true;
     await user.save();
 
+    /* =====================================================
+       🔔 NOTIFICATION (ADDED ONLY)
+    ===================================================== */
+
+    const notificationMessage = "Your Aadhaar has been successfully verified.";
+
+    // 🔔 Save notification in DB
+    await NotificationModel.create({
+      userId,
+      message: notificationMessage,
+      type: "aadhaar-verification",
+      fromUser: req.userId || null, // admin
+    });
+
+    // 📱 Expo Push
+    if (user?.expoPushToken) {
+      sendExpoPush(
+        user.expoPushToken,
+        "Aadhaar Verification",
+        notificationMessage
+      ).catch(() => {});
+    }
+
+    // 🔴 Socket
+    const io = req.app.get("io");
+    if (io) {
+      io.to(String(userId)).emit("newNotification", {
+        title: "Aadhaar Verification",
+        message: notificationMessage,
+        type: "aadhaar-verification",
+        createdAt: new Date(),
+      });
+    }
+
+    /* =====================================================
+       ✅ RESPONSE — SAME (NO CHANGE)
+    ===================================================== */
+
     return res.status(200).json({
       success: true,
-      message: 'Aadhaar verified successfully',
+      message: "Aadhaar verified successfully",
     });
   } catch (error) {
-    console.error('Aadhaar verification error:', error);
+    console.error("Aadhaar verification error:", error);
     res.status(500).json({
       success: false,
-      message: 'Server error during Aadhaar verification',
+      message: "Server error during Aadhaar verification",
     });
   }
 };
+
 export const getAdminProfile = async (req, res) => {
   try {
     const adminId = req.userId; // set by authenticateUser()

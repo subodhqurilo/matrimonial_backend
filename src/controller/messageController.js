@@ -165,26 +165,42 @@ export const getMessages = async (req, res) => {
 
     const totalMessages = await messageModel.countDocuments({
       conversationId,
-      deletedFor: { $ne: userId }
+      deletedFor: { $ne: userId },
     });
 
-    const messages = await messageModel
+    let messages = await messageModel
       .find({ conversationId, deletedFor: { $ne: userId } })
-      .populate({ path: "replyTo", select: "messageText files senderId receiverId createdAt" })
+      .populate({
+        path: "replyTo",
+        select: "messageText files senderId receiverId createdAt",
+      })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
+    // 🔥 FIX: sanitize files (remove blob URLs)
+    messages = messages.map((msg) => {
+      const validFiles = (msg.files || []).filter(
+        (f) => f.fileUrl && !f.fileUrl.startsWith("blob:")
+      );
+
+      return {
+        ...msg,
+        files: validFiles,
+        hasValidFiles: validFiles.length > 0, // frontend helper
+      };
+    });
+
     const otherUser = await RegisterModel.findById(currentUserId).lean();
     const currentUser = await RegisterModel.findById(userId).lean();
 
-    const isBlocked = otherUser?.blockedUsers?.includes(userId);
-    const youBlocked = currentUser?.blockedUsers?.includes(currentUserId);
+    const isBlocked = otherUser?.blockedUsers?.includes(userId) || false;
+    const youBlocked = currentUser?.blockedUsers?.includes(currentUserId) || false;
 
     return res.status(200).json({
       success: true,
-      data: messages.reverse(),
+      data: messages.reverse(), // keep chat order
       isBlocked,
       youBlocked,
       pagination: {
@@ -192,14 +208,15 @@ export const getMessages = async (req, res) => {
         limit,
         total: totalMessages,
         pages: Math.ceil(totalMessages / limit),
-        hasMore: page * limit < totalMessages
-      }
+        hasMore: page * limit < totalMessages,
+      },
     });
   } catch (error) {
     console.error("Error in getMessages:", error);
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
 
 export const getUnreadMessagesCount = async (req, res) => {
   try {
