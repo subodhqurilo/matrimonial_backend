@@ -160,6 +160,95 @@ export const socketHandler = (io) => {
       }
     });
 
+
+    /* =====================================================
+    📞 CALL EVENTS (AUDIO / VIDEO)
+===================================================== */
+
+// 1️⃣ START CALL (RINGING)
+socket.on("call-user", async ({ from, to, callType }) => {
+  if (!from || !to || !callType) return;
+
+  const conversationId = getConversationId(from, to);
+
+  // 🔥 create call message in DB
+  const callMsg = await messageModel.create({
+    senderId: from,
+    receiverId: to,
+    conversationId,
+    isCall: true,
+    callType,              // "audio" | "video"
+    callStatus: "ringing",
+  });
+
+  // notify receiver
+  io.to(String(to)).emit("incoming-call", {
+    from,
+    callType,
+    callMessageId: callMsg._id,
+  });
+
+  console.log(`📞 ${from} calling ${to} (${callType})`);
+});
+
+
+// 2️⃣ ACCEPT CALL
+socket.on("accept-call", async ({ callMessageId, from, to }) => {
+  await messageModel.findByIdAndUpdate(callMessageId, {
+    callStatus: "accepted",
+    callStartedAt: new Date(),
+  });
+
+  io.to(String(from)).emit("call-accepted", { by: to });
+});
+
+
+// 3️⃣ REJECT CALL
+socket.on("reject-call", async ({ callMessageId, from, to }) => {
+  await messageModel.findByIdAndUpdate(callMessageId, {
+    callStatus: "rejected",
+    callEndedAt: new Date(),
+  });
+
+  io.to(String(from)).emit("call-rejected", { by: to });
+});
+
+
+// 4️⃣ END CALL
+socket.on("end-call", async ({ callMessageId, from, to }) => {
+  const call = await messageModel.findById(callMessageId);
+
+  const duration = call?.callStartedAt
+    ? Math.floor((Date.now() - new Date(call.callStartedAt)) / 1000)
+    : 0;
+
+  await messageModel.findByIdAndUpdate(callMessageId, {
+    callStatus: "ended",
+    callEndedAt: new Date(),
+    callDuration: duration,
+  });
+
+  io.to(String(to)).emit("call-ended", { by: from });
+});
+
+
+
+/* =====================================================
+    🔗 WEBRTC SIGNALING
+===================================================== */
+
+socket.on("webrtc-offer", ({ to, offer }) => {
+  io.to(String(to)).emit("webrtc-offer", offer);
+});
+
+socket.on("webrtc-answer", ({ to, answer }) => {
+  io.to(String(to)).emit("webrtc-answer", answer);
+});
+
+socket.on("webrtc-ice-candidate", ({ to, candidate }) => {
+  io.to(String(to)).emit("webrtc-ice-candidate", candidate);
+});
+
     /* =====================================================
         3️⃣ TYPING INDICATOR
     ===================================================== */
