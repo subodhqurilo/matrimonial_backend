@@ -15,31 +15,51 @@ export const postMessage = async (req, res) => {
     const { receiverId, messageText, replyToId } = req.body;
 
     if (!receiverId) {
-      return res.status(400).json({ success: false, message: "receiverId required" });
+      return res.status(400).json({
+        success: false,
+        message: "receiverId required",
+      });
     }
 
     const receiverExists = await RegisterModel.findById(receiverId);
     if (!receiverExists) {
-      return res.status(404).json({ success: false, message: "Receiver not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Receiver not found",
+      });
     }
 
-    const currentUser = await RegisterModel.findById(senderId).select("blockedUsers");
+    const currentUser = await RegisterModel
+      .findById(senderId)
+      .select("blockedUsers");
+
     const isBlocked = receiverExists.blockedUsers?.includes(senderId);
     const youBlocked = currentUser?.blockedUsers?.includes(receiverId);
 
     if (isBlocked || youBlocked) {
-      return res.status(403).json({ success: false, message: "Cannot send message. User is blocked." });
+      return res.status(403).json({
+        success: false,
+        message: "Cannot send message. User is blocked.",
+      });
     }
 
-    const uploadedFiles = (req.files || []).map((file) => ({
-      fileName: file.originalname,
-      fileUrl: file.path,
-      fileType: file.mimetype,
-      fileSize: file.size,
-    }));
+    // ✅ SAFE FILE HANDLING (multer-proof)
+    const filesArray = Array.isArray(req.files) ? req.files : [];
+
+    const uploadedFiles = filesArray
+      .filter((file) => file?.path && !file.path.startsWith("blob:")) // 🚫 no blob
+      .map((file) => ({
+        fileName: file.originalname,
+        fileUrl: file.path, // ✅ must be HTTPS (Cloudinary / S3)
+        fileType: file.mimetype || "",
+        fileSize: file.size || 0,
+      }));
 
     if (!messageText?.trim() && uploadedFiles.length === 0) {
-      return res.status(400).json({ success: false, message: "Text or file required" });
+      return res.status(400).json({
+        success: false,
+        message: "Text or file required",
+      });
     }
 
     const conversationId = getConversationId(senderId, receiverId);
@@ -50,7 +70,9 @@ export const postMessage = async (req, res) => {
       conversationId,
       messageText: messageText?.trim() || "",
       files: uploadedFiles,
-      replyTo: replyToId ? new mongoose.Types.ObjectId(replyToId) : null,
+      replyTo: replyToId
+        ? new mongoose.Types.ObjectId(replyToId)
+        : null,
       status: "sent",
     });
 
@@ -60,89 +82,162 @@ export const postMessage = async (req, res) => {
     if (io) {
       const messageData = message.toObject();
       const receiverOnline = isUserOnline(receiverId);
-      
+
+      // ✅ DELIVERY STATUS (CONSISTENT)
       if (receiverOnline) {
+        const deliveredAt = new Date();
+
         await messageModel.findByIdAndUpdate(message._id, {
-          $set: { status: "delivered", deliveredAt: new Date() }
+          $set: { status: "delivered", deliveredAt },
         });
+
         messageData.status = "delivered";
-        messageData.deliveredAt = new Date();
-        
+        messageData.deliveredAt = deliveredAt;
+
         io.to(String(senderId)).emit("message-delivered", {
           messageId: message._id,
           conversationId,
-          deliveredAt: messageData.deliveredAt
+          deliveredAt,
         });
       }
 
       io.to(String(receiverId)).emit("msg-receive", messageData);
       io.to(String(senderId)).emit("msg-sent", messageData);
-      
-      console.log(`📨 Message sent: ${senderId} → ${receiverId} [${uploadedFiles.length} files]`);
+
+      console.log(
+        `📨 Message sent: ${senderId} → ${receiverId} [${uploadedFiles.length} files]`
+      );
     }
 
-    return res.status(201).json({ success: true, data: message });
+    return res.status(201).json({
+      success: true,
+      data: message,
+    });
   } catch (error) {
-    console.error("postMessage error:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    console.error("🔥 postMessage error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
   }
 };
+
 
 export const sendFileMessage = async (req, res) => {
   try {
     const senderId = req.userId;
     const { receiverId, replyToId } = req.body;
-    const file = req.file;
+
+    // multer single upload safety
+    const file = req.file || null;
+
+    if (!receiverId) {
+      return res.status(400).json({
+        success: false,
+        message: "receiverId required",
+      });
+    }
 
     if (!file) {
-      return res.status(400).json({ success: false, message: "File required" });
+      return res.status(400).json({
+        success: false,
+        message: "File required",
+      });
+    }
+
+    // 🚨 VERY IMPORTANT: never allow blob urls
+    if (file.path?.startsWith("blob:")) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid file URL",
+      });
     }
 
     const receiverExists = await RegisterModel.findById(receiverId);
     if (!receiverExists) {
-      return res.status(404).json({ success: false, message: "Receiver not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Receiver not found",
+      });
     }
 
-    const currentUser = await RegisterModel.findById(senderId).select("blockedUsers");
+    const currentUser = await RegisterModel
+      .findById(senderId)
+      .select("blockedUsers");
+
     const isBlocked = receiverExists.blockedUsers?.includes(senderId);
     const youBlocked = currentUser?.blockedUsers?.includes(receiverId);
 
     if (isBlocked || youBlocked) {
-      return res.status(403).json({ success: false, message: "Cannot send file. User is blocked." });
+      return res.status(403).json({
+        success: false,
+        message: "Cannot send file. User is blocked.",
+      });
     }
 
     const conversationId = getConversationId(senderId, receiverId);
 
-    const msg = await messageModel.create({
+    let message = await messageModel.create({
       senderId,
       receiverId,
       conversationId,
       messageText: "",
-      files: [{
-        fileName: file.originalname,
-        fileUrl: file.path,      // ✅ ALREADY cloudinary URL
-        fileType: file.mimetype,
-        fileSize: file.size,
-      }],
-      replyTo: replyToId ? new mongoose.Types.ObjectId(replyToId) : null,
+      files: [
+        {
+          fileName: file.originalname,
+          fileUrl: file.path, // ✅ MUST be https (Cloudinary / S3)
+          fileType: file.mimetype || "",
+          fileSize: file.size || 0,
+        },
+      ],
+      replyTo: replyToId
+        ? new mongoose.Types.ObjectId(replyToId)
+        : null,
       status: "sent",
     });
 
-    const populatedMsg = await messageModel.findById(msg._id).populate("replyTo");
+    message = await messageModel.findById(message._id).populate("replyTo");
 
     const io = req.app.get("io");
     if (io) {
-      io.to(String(receiverId)).emit("msg-receive", populatedMsg);
-      io.to(String(senderId)).emit("msg-sent", populatedMsg);
+      const receiverOnline = isUserOnline(receiverId);
+
+      // ✅ Delivered logic (same as text)
+      if (receiverOnline) {
+        await messageModel.findByIdAndUpdate(message._id, {
+          $set: {
+            status: "delivered",
+            deliveredAt: new Date(),
+          },
+        });
+
+        message.status = "delivered";
+        message.deliveredAt = new Date();
+
+        io.to(String(senderId)).emit("message-delivered", {
+          messageId: message._id,
+          conversationId,
+          deliveredAt: message.deliveredAt,
+        });
+      }
+
+      io.to(String(receiverId)).emit("msg-receive", message);
+      io.to(String(senderId)).emit("msg-sent", message);
     }
 
-    return res.status(200).json({ success: true, data: populatedMsg });
-
+    return res.status(201).json({
+      success: true,
+      data: message,
+    });
   } catch (error) {
-    console.error("sendFileMessage error:", error);
-    return res.status(500).json({ success: false, message: "Internal Error" });
+    console.error("🔥 sendFileMessage error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
   }
 };
+
 
 
 export const getMessages = async (req, res) => {
