@@ -10,13 +10,29 @@ const storage = new CloudinaryStorage({
 
     return {
       folder: "chat-files",
-      resource_type: "raw",      // 🔥 PDF/DOC ke liye
-      type: "upload",            // 🔥 public access
+
+      // ✅ AUTO = image + video + raw (ALL FILES)
+      resource_type: "auto",
+
+      type: "upload", // public access
+
       public_id: `${Date.now()}-${nameWithoutExt}`,
     };
   },
 });
 
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+
+  // ❌ No file type restriction
+  fileFilter: (req, file, cb) => {
+    cb(null, true);
+  },
+
+  // ✅ Optional size limit (remove if you want unlimited)
+  limits: {
+    fileSize: 1024 * 1024 * 100, // 100MB
+  },
+});
 
 export default upload;
