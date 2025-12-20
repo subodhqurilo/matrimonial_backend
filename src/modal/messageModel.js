@@ -36,46 +36,6 @@ const messageSchema = new mongoose.Schema(
 
     files: [messageFileSchema],
 
-
-    
-
-// 🔥 CALL SUPPORT (ADD HERE)
-isCall: {
-  type: Boolean,
-  default: false,
-  index: true,
-},
-
-callType: {
-  type: String,
-  enum: ["audio", "video"],
-},
-
-callStatus: {
-  type: String,
-  enum: ["initiated", "ringing", "accepted", "rejected", "missed", "ended"],
-},
-
-callDuration: {
-  type: Number, // seconds
-},
-
-callStartedAt: {
-  type: Date,
-},
-
-callEndedAt: {
-  type: Date,
-},
-
-status: {
-  type: String,
-  enum: ["sent", "delivered", "read"],
-  default: "sent",
-  index: true,
-},
-
-
     status: {
       type: String,
       enum: ["sent", "delivered", "read"],
@@ -118,8 +78,6 @@ status: {
   },
   { timestamps: true }
 );
-
-
 
 // Hide messages deleted for user
 messageSchema.query.notDeletedForUser = function (userId) {
