@@ -785,12 +785,11 @@ export const getFilteredManageUsers = async (req, res) => {
 
     const filter = {};
 
-    // -----------------------------------------
-    // 🔍 SEARCH (supports vm12345, 12345, vm12, etc.)
-    // -----------------------------------------
+    /* =========================================
+       🔍 SEARCH
+    ========================================= */
     if (search.trim()) {
       const s = search.trim();
-
       const isVmId = /^vm?[0-9]{3,6}$/i.test(s);
 
       if (isVmId) {
@@ -806,15 +805,15 @@ export const getFilteredManageUsers = async (req, res) => {
       }
     }
 
-    // -----------------------------------------
-    // 🟡 FILTERS
-    // -----------------------------------------
+    /* =========================================
+       🟡 FILTERS
+    ========================================= */
     if (status) filter.adminApprovel = new RegExp(status, "i");
     if (gender) filter.gender = new RegExp(gender, "i");
 
-    // -----------------------------------------
-    // 🔽 SORTING
-    // -----------------------------------------
+    /* =========================================
+       🔽 SORTING
+    ========================================= */
     const sort = {};
     const validSort = ["name", "joined", "status", "gender", "lastActive"];
 
@@ -828,12 +827,11 @@ export const getFilteredManageUsers = async (req, res) => {
       sort.createdAt = -1;
     }
 
-    // -----------------------------------------
-    // 📌 PAGINATION LOGIC
-    // -----------------------------------------
+    /* =========================================
+       📌 PAGINATION
+    ========================================= */
     page = Number(page);
     limit = Number(limit);
-
     const skip = (page - 1) * limit;
 
     const total = await RegisterModel.countDocuments(filter);
@@ -844,11 +842,12 @@ export const getFilteredManageUsers = async (req, res) => {
       .limit(limit)
       .lean();
 
-    // -----------------------------------------
-    // 🎨 FORMAT OUTPUT
-    // -----------------------------------------
+    /* =========================================
+       🎨 FORMAT OUTPUT (✅ VERIFIED FIX)
+    ========================================= */
     const formattedUsers = users.map((user, index) => {
       const fallbackId = "vm" + String(skip + index + 1).padStart(5, "0");
+      const isApproved = String(user.adminApprovel).toLowerCase() === "approved";
 
       return {
         id: user.id || fallbackId,
@@ -867,7 +866,9 @@ export const getFilteredManageUsers = async (req, res) => {
               year: "numeric",
             })
           : "",
-        verified: user.isMobileVerified || false,
+
+        // ✅ EXACT REQUIREMENT
+        verified: isApproved,
 
         lastActive: user.updatedAt
           ? new Date(user.updatedAt).toLocaleDateString("en-IN", {
@@ -876,6 +877,7 @@ export const getFilteredManageUsers = async (req, res) => {
               year: "numeric",
             })
           : "",
+
         status: capitalizeStatus(user.adminApprovel),
       };
     });
@@ -887,11 +889,16 @@ export const getFilteredManageUsers = async (req, res) => {
       limit,
       totalPages: Math.ceil(total / limit),
     });
+
   } catch (error) {
     console.error("Error fetching users:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
+    res.status(500).json({
+      message: "Server error",
+      error: error.message,
+    });
   }
 };
+
 
 
 
@@ -1074,12 +1081,11 @@ export const getAllManageUserData = async (req, res) => {
 
     const query = {};
 
-    // ------------------------------------
-    // 🔍 SEARCH (supports vm ID search)
-    // ------------------------------------
+    /* ====================================
+       🔍 SEARCH
+    ==================================== */
     if (search.trim()) {
       const s = search.trim();
-
       const isVm = /^vm?[0-9]{3,6}$/i.test(s);
 
       if (isVm) {
@@ -1097,18 +1103,18 @@ export const getAllManageUserData = async (req, res) => {
       }
     }
 
-    // ------------------------------------
-    // 🟡 FILTERS
-    // ------------------------------------
+    /* ====================================
+       🟡 FILTERS
+    ==================================== */
     if (statusFilter.trim())
       query.adminApprovel = new RegExp(statusFilter, "i");
 
     if (genderFilter.trim())
       query.gender = new RegExp(genderFilter, "i");
 
-    // ------------------------------------
-    // 🔼 SORTING
-    // ------------------------------------
+    /* ====================================
+       🔼 SORTING
+    ==================================== */
     const sortFieldMap = {
       name: "fullName",
       email: "email",
@@ -1116,15 +1122,15 @@ export const getAllManageUserData = async (req, res) => {
       gender: "gender",
       joined: "createdAt",
       status: "adminApprovel",
-      lastActive: "lastLoginAt",
+      lastActive: "updatedAt",
     };
 
     const sortKey = sortFieldMap[sortBy] || "createdAt";
     const sort = { [sortKey]: sortOrder === "asc" ? 1 : -1 };
 
-    // ------------------------------------
-    // 📌 PAGINATION LOGIC
-    // ------------------------------------
+    /* ====================================
+       📌 PAGINATION
+    ==================================== */
     const pageNum = Number(page);
     const limitNum = Number(limit);
     const skip = (pageNum - 1) * limitNum;
@@ -1137,9 +1143,9 @@ export const getAllManageUserData = async (req, res) => {
       .limit(limitNum)
       .lean();
 
-    // ------------------------------------
-    // 🎨 FORMAT RESPONSE
-    // ------------------------------------
+    /* ====================================
+       🎨 FORMAT RESPONSE (✅ VERIFIED LOGIC)
+    ==================================== */
     const formatted = users.map((u, index) => {
       const fallbackId = "vm" + String(skip + index + 1).padStart(5, "0");
       const finalId = u.id || fallbackId;
@@ -1149,6 +1155,10 @@ export const getAllManageUserData = async (req, res) => {
         `${u.firstName || ""} ${u.middleName || ""} ${u.lastName || ""}`.trim() ||
         "N/A";
 
+      const lastActiveDate = u.lastLoginAt || u.updatedAt;
+      const isApproved =
+        String(u.adminApprovel).toLowerCase() === "approved";
+
       return {
         id: finalId,
         mongoId: u._id,
@@ -1157,15 +1167,19 @@ export const getAllManageUserData = async (req, res) => {
         mobile: u.mobile || "N/A",
         gender: u.gender || "N/A",
         status: u.adminApprovel || "Pending",
+        verified: isApproved, // ✅ EXACT REQUIREMENT
         location: u.currentCity || u.city || "N/A",
         profileImage: u.profileImage || null,
         joined: moment(u.createdAt).format("DD MMM, YYYY"),
-        lastActive: u.lastLoginAt
-          ? moment(u.lastLoginAt).format("DD MMM, YYYY")
+        lastActive: lastActiveDate
+          ? moment(lastActiveDate).format("DD MMM, YYYY")
           : "N/A",
       };
     });
 
+    /* ====================================
+       📌 FINAL RESPONSE
+    ==================================== */
     res.status(200).json({
       success: true,
       totalUsers,
@@ -1183,6 +1197,8 @@ export const getAllManageUserData = async (req, res) => {
     });
   }
 };
+
+
 
 
 
