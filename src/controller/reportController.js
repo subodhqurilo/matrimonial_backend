@@ -3,6 +3,8 @@ import moment from "moment-timezone";
 import mongoose from "mongoose";
 import ReportModel from '../modal/ReportModel.js';
 import RegisterModel from '../modal/register.js';
+import NotificationModel from "../modal/Notification.js";
+import { sendExpoPush } from "../utils/expoPush.js"; // expo push function
 
 // ------------------------------------------------------
 // 1️⃣ Create Report
@@ -58,6 +60,60 @@ export const createReport = async (req, res) => {
       .populate("reporter", "id fullName email profileImage gender")
       .populate("reportedUser", "id fullName email profileImage gender adminApprovel");
 
+    /* =====================================================
+       🔔 NOTIFICATION SECTION (ADD ONLY)
+    ===================================================== */
+
+    const io = global.io;
+
+    /* ---------- 1️⃣ NOTIFY REPORTED USER ---------- */
+    const reportedUserNotification = await NotificationModel.create({
+      user: reportedUser,
+      title: "You have been reported",
+      message: `A report has been submitted against your profile.`,
+      type: "report",
+      referenceId: newReport._id,
+    });
+
+    // socket notification
+    io?.to(String(reportedUser)).emit("notification", reportedUserNotification);
+
+    // push notification
+    if (userExists.fcmToken) {
+      await sendPushNotification(
+        userExists.fcmToken,
+        "You have been reported",
+        "A report has been submitted against your profile."
+      );
+    }
+
+    /* ---------- 2️⃣ NOTIFY ADMINS ---------- */
+    const admins = await RegisterModel.find({ role: "Admin" });
+
+    for (const admin of admins) {
+      const adminNotification = await NotificationModel.create({
+        user: admin._id,
+        title: "New report submitted",
+        message: `A new report has been submitted by a user.`,
+        type: "report",
+        referenceId: newReport._id,
+      });
+
+      // socket
+      io?.to(String(admin._id)).emit("notification", adminNotification);
+
+      // push
+      if (admin.fcmToken) {
+        await sendPushNotification(
+          admin.fcmToken,
+          "New report submitted",
+          "A user has submitted a new report. Please review."
+        );
+      }
+    }
+
+    /* ===================================================== */
+
     return res.status(201).json({
       success: true,
       message: "Report submitted successfully.",
@@ -73,6 +129,7 @@ export const createReport = async (req, res) => {
     });
   }
 };
+
 
 
 

@@ -9,6 +9,9 @@ import AdminModel from "../modal/adminModal.js"; // make sure correct path
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import cloudinary from "../utils/cloudinary.js";
+import NotificationModel from "../modal/Notification.js";
+import { sendExpoPush } from "../utils/expoPush.js"; // expo push function
+
 
 const ADMIN_JWT_SECRET = process.env.JWT_SECRET || "your_secret_key";
 

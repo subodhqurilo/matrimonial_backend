@@ -1,4 +1,6 @@
 import { BlockModel } from "../modal/blockModel.js";
+import NotificationModel from "../modal/Notification.js";
+import { sendExpoPush } from "../utils/expoPush.js"; // expo push function
 
 
 export const blockUser = async (req, res) => {

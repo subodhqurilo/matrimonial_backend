@@ -4,6 +4,8 @@ import messageModel from "../modal/messageModel.js";
 import { getOnlineUserIds, isUserOnline } from "../../socket.js";
 import RegisterModel from "../modal/register.js";
 import cloudinary from "../utils/cloudinary.js";
+import NotificationModel from "../modal/Notification.js";
+import { sendExpoPush } from "../utils/expoPush.js"; // expo push function
 
 const getConversationId = (id1, id2) => {
   return [String(id1), String(id2)].sort().join("_");

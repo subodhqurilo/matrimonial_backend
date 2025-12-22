@@ -1,6 +1,8 @@
 import RegisterModel from "../modal/register.js";
 import mongoose from "mongoose";
 import cloudinary from "cloudinary";
+import NotificationModel from "../modal/Notification.js";
+import { sendExpoPush } from "../utils/expoPush.js"; // expo push function
 
 
 
