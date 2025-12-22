@@ -1175,7 +1175,7 @@ export const getAllManageUserData = async (req, res) => {
       .lean();
 
     /* ====================================
-       🎨 FORMAT RESPONSE (✅ VERIFIED LOGIC)
+       🎨 FORMAT RESPONSE (✅ VERIFIED = YES / NO)
     ==================================== */
     const formatted = users.map((u, index) => {
       const fallbackId = "vm" + String(skip + index + 1).padStart(5, "0");
@@ -1198,7 +1198,10 @@ export const getAllManageUserData = async (req, res) => {
         mobile: u.mobile || "N/A",
         gender: u.gender || "N/A",
         status: u.adminApprovel || "Pending",
-        verified: isApproved, // ✅ EXACT REQUIREMENT
+
+        // ✅ EXACT CHANGE
+        verified: isApproved ? "Yes" : "No",
+
         location: u.currentCity || u.city || "N/A",
         profileImage: u.profileImage || null,
         joined: moment(u.createdAt).format("DD MMM, YYYY"),
@@ -1209,7 +1212,7 @@ export const getAllManageUserData = async (req, res) => {
     });
 
     /* ====================================
-       📌 FINAL RESPONSE
+       📌 FINAL RESPONSE (UNCHANGED)
     ==================================== */
     res.status(200).json({
       success: true,
@@ -1228,6 +1231,7 @@ export const getAllManageUserData = async (req, res) => {
     });
   }
 };
+
 
 
 
