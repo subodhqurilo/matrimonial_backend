@@ -24,6 +24,7 @@ export const postMessage = async (req, res) => {
     }
 
     const currentUser = await RegisterModel.findById(senderId).select("blockedUsers");
+
     if (
       receiverExists.blockedUsers?.includes(senderId) ||
       currentUser?.blockedUsers?.includes(receiverId)
@@ -34,31 +35,13 @@ export const postMessage = async (req, res) => {
       });
     }
 
-    // ✅ FILE SAFETY
     const filesArray = Array.isArray(req.files) ? req.files : [];
-    const uploadedFiles = filesArray
-      .filter(
-        file =>
-          file?.path &&
-          file.path.startsWith("https://res.cloudinary.com/") &&
-          !file.path.startsWith("blob:")
-      )
-      .map(file => {
-        // ❌ block wrong PDF upload
-        if (
-          file.mimetype === "application/pdf" &&
-          file.path.includes("/image/upload/")
-        ) {
-          throw new Error("Invalid PDF upload. Please re-upload.");
-        }
-
-        return {
-          fileName: file.originalname,
-          fileUrl: file.path,
-          fileType: file.mimetype || "",
-          fileSize: file.size || 0,
-        };
-      });
+    const uploadedFiles = filesArray.map(file => ({
+      fileName: file.originalname,
+      fileUrl: file.path,
+      fileType: file.mimetype || "",
+      fileSize: file.size || 0,
+    }));
 
     if (!messageText?.trim() && uploadedFiles.length === 0) {
       return res.status(400).json({
@@ -88,21 +71,20 @@ export const postMessage = async (req, res) => {
       if (isUserOnline(receiverId)) {
         messageData.status = "delivered";
         messageData.deliveredAt = new Date();
-
         await messageModel.findByIdAndUpdate(message._id, {
           status: "delivered",
           deliveredAt: messageData.deliveredAt,
         });
       }
 
-      // ✅ correct socket flow
+      // ✅ SAME EVENT FOR BOTH
       io.to(String(receiverId)).emit("msg-receive", messageData);
-      io.to(String(senderId)).emit("msg-sent", messageData);
+      io.to(String(senderId)).emit("msg-receive", messageData);
     }
 
     return res.status(201).json({ success: true, data: message });
   } catch (error) {
-    console.error("postMessage error:", error);
+    console.error("🔥 postMessage error:", error);
     return res.status(500).json({
       success: false,
       message: error.message || "Internal server error",
@@ -112,41 +94,22 @@ export const postMessage = async (req, res) => {
 
 
 
-
 export const sendFileMessage = async (req, res) => {
   try {
     const senderId = req.userId;
     const { receiverId, replyToId } = req.body;
-    const file = req.file;
+    const file = req.file || null;
 
     if (!receiverId) {
       return res.status(400).json({ success: false, message: "receiverId required" });
     }
 
-    if (!file || !file.path) {
+    if (!file) {
       return res.status(400).json({ success: false, message: "File required" });
     }
 
-    // ❌ invalid URL protection
-    if (
-      file.path.startsWith("blob:") ||
-      !file.path.startsWith("https://res.cloudinary.com/")
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid file upload. Please re-upload.",
-      });
-    }
-
-    // ❌ wrong PDF bucket protection
-    if (
-      file.mimetype === "application/pdf" &&
-      file.path.includes("/image/upload/")
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid PDF upload. Please re-upload file.",
-      });
+    if (file.path?.startsWith("blob:")) {
+      return res.status(400).json({ success: false, message: "Invalid file URL" });
     }
 
     const receiverExists = await RegisterModel.findById(receiverId);
@@ -193,28 +156,26 @@ export const sendFileMessage = async (req, res) => {
       if (isUserOnline(receiverId)) {
         messageData.status = "delivered";
         messageData.deliveredAt = new Date();
-
         await messageModel.findByIdAndUpdate(message._id, {
           status: "delivered",
           deliveredAt: messageData.deliveredAt,
         });
       }
 
-      // ✅ correct socket events
+      // ✅ SAME EVENT FOR BOTH USERS
       io.to(String(receiverId)).emit("msg-receive", messageData);
-      io.to(String(senderId)).emit("msg-sent", messageData);
+      io.to(String(senderId)).emit("msg-receive", messageData);
     }
 
     return res.status(201).json({ success: true, data: message });
   } catch (error) {
-    console.error("sendFileMessage error:", error);
+    console.error("🔥 sendFileMessage error:", error);
     return res.status(500).json({
       success: false,
       message: error.message || "Internal server error",
     });
   }
 };
-
 
 
 
