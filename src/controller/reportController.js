@@ -58,6 +58,37 @@ export const createReport = async (req, res) => {
       .populate("reporter", "id fullName email profileImage gender")
       .populate("reportedUser", "id fullName email profileImage gender adminApprovel");
 
+    /* =====================================================
+       🔔 ADMIN NOTIFICATION (ADDED ONLY)
+    ===================================================== */
+
+    const adminMessage =
+      "A new user report has been submitted and requires admin review.";
+
+    // 🔔 Save notification for ADMIN (DB)
+    await NotificationModel.create({
+      userId: "ADMIN", // ya tumhare admin userId / role based logic
+      message: adminMessage,
+      type: "report-created",
+      fromUser: reporter,
+    });
+
+    // 🔴 Socket → ADMIN ROOM
+    const io = req.app.get("io");
+    if (io) {
+      io.to("admin").emit("newNotification", {
+        title: "New User Report",
+        message: adminMessage,
+        type: "report-created",
+        reportId: newReport._id,
+        createdAt: new Date(),
+      });
+    }
+
+    /* =====================================================
+       ✅ RESPONSE — SAME (NO CHANGE)
+    ===================================================== */
+
     return res.status(201).json({
       success: true,
       message: "Report submitted successfully.",
@@ -73,6 +104,7 @@ export const createReport = async (req, res) => {
     });
   }
 };
+
 
 
 

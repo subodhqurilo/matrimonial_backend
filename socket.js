@@ -76,89 +76,98 @@ export const socketHandler = (io) => {
     /* =====================================================
         2️⃣ SEND MESSAGE (TEXT/FILES)
     ===================================================== */
-    socket.on("send-msg", async ({ from, to, messageText, replyToId, tempId, files }) => {
-      try {
-        if (!from || !to) {
-          socket.emit("error", { message: "Invalid message data" });
-          return;
-        }
+    // socket.on("send-msg", async ({ from, to, messageText, replyToId, tempId, files }) => {
+    //   try {
+    //     if (!from || !to) {
+    //       socket.emit("error", { message: "Invalid message data" });
+    //       return;
+    //     }
 
-        // Allow empty text if files exist
-        if (!messageText?.trim() && (!files || files.length === 0)) {
-          socket.emit("error", { message: "Message text or files required" });
-          return;
-        }
+    //     // Allow empty text if files exist
+    //     if (!messageText?.trim() && (!files || files.length === 0)) {
+    //       socket.emit("error", { message: "Message text or files required" });
+    //       return;
+    //     }
 
-        const conversationId = getConversationId(from, to);
+    //     const conversationId = getConversationId(from, to);
 
-        // Create message in database
-        let message = await messageModel.create({
-          senderId: new mongoose.Types.ObjectId(from),
-          receiverId: new mongoose.Types.ObjectId(to),
-          conversationId,
-          messageText: messageText?.trim() || "",
-          replyTo: replyToId ? new mongoose.Types.ObjectId(replyToId) : null,
-          files: files || [],
-          status: "sent",
-          tempId,
-        });
+    //     // Create message in database
+    //     let message = await messageModel.create({
+    //       senderId: new mongoose.Types.ObjectId(from),
+    //       receiverId: new mongoose.Types.ObjectId(to),
+    //       conversationId,
+    //       messageText: messageText?.trim() || "",
+    //       replyTo: replyToId ? new mongoose.Types.ObjectId(replyToId) : null,
+    //       files: files || [],
+    //       status: "sent",
+    //       tempId,
+    //     });
 
-        // Populate replyTo if exists
-        if (replyToId) {
-          message = await messageModel.findById(message._id)
-            .populate("replyTo")
-            .exec();
-        }
+    //     // Populate replyTo if exists
+    //     if (replyToId) {
+    //       message = await messageModel.findById(message._id)
+    //         .populate("replyTo")
+    //         .exec();
+    //     }
 
-        const messageData = message.toObject();
-        messageData.tempId = tempId; // Include tempId for client-side matching
+    //     const messageData = message.toObject();
+    //     messageData.tempId = tempId; // Include tempId for client-side matching
 
-        const isReceiverOnline = onlineUsers.has(String(to));
+    //     const isReceiverOnline = onlineUsers.has(String(to));
 
-        // Update status if receiver is online
-        if (isReceiverOnline) {
-          await messageModel.findByIdAndUpdate(message._id, {
-            $set: { status: "delivered", deliveredAt: new Date() }
-          });
-          messageData.status = "delivered";
-          messageData.deliveredAt = new Date();
+    //     // Update status if receiver is online
+    //     if (isReceiverOnline) {
+    //       await messageModel.findByIdAndUpdate(message._id, {
+    //         $set: { status: "delivered", deliveredAt: new Date() }
+    //       });
+    //       messageData.status = "delivered";
+    //       messageData.deliveredAt = new Date();
           
-          // Notify sender about delivery
-          io.to(String(from)).emit("message-delivered", {
-            messageId: message._id,
-            conversationId,
-            deliveredAt: messageData.deliveredAt
-          });
-        }
+    //       // Notify sender about delivery
+    //       io.to(String(from)).emit("message-delivered", {
+    //         messageId: message._id,
+    //         conversationId,
+    //         deliveredAt: messageData.deliveredAt
+    //       });
+    //     }
 
-        // Send to receiver (if not self-message)
-        if (String(from) !== String(to)) {
-          io.to(String(to)).emit("msg-receive", messageData);
-        }
+    //     // Send to receiver (if not self-message)
+    //     if (String(from) !== String(to)) {
+    //       io.to(String(to)).emit("msg-receive", messageData);
+    //     }
 
-        // Send confirmation to sender
-        io.to(String(from)).emit("msg-sent", messageData);
+    //     // Send confirmation to sender
+    //     io.to(String(from)).emit("msg-sent", messageData);
 
-        const msgPreview = messageText?.substring(0, 30) || "[File/Media]";
-        console.log(`📨 ${from} → ${to}: "${msgPreview}..." [${files?.length || 0} files]`);
+    //     const msgPreview = messageText?.substring(0, 30) || "[File/Media]";
+    //     console.log(`📨 ${from} → ${to}: "${msgPreview}..." [${files?.length || 0} files]`);
         
-        // Stop typing indicator
-        const convId = getConversationId(from, to);
-        if (typingUsers.has(convId)) {
-          clearTimeout(typingUsers.get(convId).timeout);
-          typingUsers.delete(convId);
-        }
-        io.to(String(to)).emit("user-stop-typing", { from });
+    //     // Stop typing indicator
+    //     const convId = getConversationId(from, to);
+    //     if (typingUsers.has(convId)) {
+    //       clearTimeout(typingUsers.get(convId).timeout);
+    //       typingUsers.delete(convId);
+    //     }
+    //     io.to(String(to)).emit("user-stop-typing", { from });
 
-      } catch (error) {
-        console.error("send-msg error:", error);
-        socket.emit("message-error", { 
-          tempId,
-          error: "Message send failed",
-          details: error.message 
-        });
-      }
-    });
+    //   } catch (error) {
+    //     console.error("send-msg error:", error);
+    //     socket.emit("message-error", { 
+    //       tempId,
+    //       error: "Message send failed",
+    //       details: error.message 
+    //     });
+    //   }
+    // });
+socket.on("send-msg", ({ from, to, messageId }) => {
+  if (!from || !to || !messageId) return;
+
+  // Sirf receiver ko notify
+  io.to(String(to)).emit("new-message", {
+    messageId,
+    from,
+  });
+});
 
     /* =====================================================
         3️⃣ TYPING INDICATOR
