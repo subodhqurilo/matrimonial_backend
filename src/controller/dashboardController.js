@@ -473,9 +473,9 @@ export const getUsers = async (req, res) => {
 
     const query = {};
 
-    // ------------------------------------
-    // 🔍 SEARCH
-    // ------------------------------------
+    /* ====================================
+       🔍 SEARCH
+    ==================================== */
     if (search) {
       if (mongoose.Types.ObjectId.isValid(search)) {
         query._id = new mongoose.Types.ObjectId(search);
@@ -491,26 +491,39 @@ export const getUsers = async (req, res) => {
       }
     }
 
-    // ------------------------------------
-    // 🟡 FILTERS
-    // ------------------------------------
+    /* ====================================
+       🟡 FILTERS
+    ==================================== */
     if (status) query.adminApprovel = status;
     if (gender) query.gender = gender;
     if (city) query.currentCity = city;
     if (state) query.state = state;
 
+    // ✅ VERIFIED FILTER (admin approval based)
     if (verified !== undefined) {
-      query.verification = verified === "true" ? "Verified" : { $ne: "Verified" };
+      if (verified === "true") {
+        query.adminApprovel = "approved";
+      } else if (verified === "false") {
+        query.adminApprovel = { $ne: "approved" };
+      }
     }
 
+    // ✅ ACTIVE FILTER (last active in X days)
     if (active) {
-      const since = moment().tz("Asia/Kolkata").subtract(Number(active), "days").toDate();
-      query.lastLoginAt = { $gte: since };
+      const since = moment()
+        .tz("Asia/Kolkata")
+        .subtract(Number(active), "days")
+        .toDate();
+
+      query.$or = [
+        { lastLoginAt: { $gte: since } },
+        { updatedAt: { $gte: since } }
+      ];
     }
 
-    // ------------------------------------
-    // 🔼 SORTING
-    // ------------------------------------
+    /* ====================================
+       🔼 SORTING
+    ==================================== */
     const sortFieldMap = {
       id: "_id",
       name: "fullName",
@@ -518,15 +531,15 @@ export const getUsers = async (req, res) => {
       gender: "gender",
       joined: "createdAt",
       status: "adminApprovel",
-      lastActive: "lastLoginAt"
+      lastActive: "updatedAt"
     };
 
     const sortField = sortFieldMap[sortBy] || "createdAt";
     const sort = { [sortField]: sortOrder === "asc" ? 1 : -1 };
 
-    // ------------------------------------
-    // 📊 PAGINATION LOGIC
-    // ------------------------------------
+    /* ====================================
+       📊 PAGINATION
+    ==================================== */
     const skip = (Number(page) - 1) * Number(limit);
 
     const totalUsers = await RegisterModel.countDocuments(query);
@@ -537,9 +550,9 @@ export const getUsers = async (req, res) => {
       .limit(Number(limit))
       .collation({ locale: "en", strength: 2 });
 
-    // ------------------------------------
-    // 🎨 FORMAT DATA FOR UI
-    // ------------------------------------
+    /* ====================================
+       🎨 FORMAT DATA (NO RESPONSE CHANGE)
+    ==================================== */
     const formatted = users.map((user, idx) => {
       const userId = String(skip + idx + 1).padStart(6, "0");
 
@@ -549,7 +562,11 @@ export const getUsers = async (req, res) => {
         "N/A";
 
       const location = user.currentCity || user.city || user.state || "N/A";
-      const verifiedStatus = user.verification === "Verified";
+
+      const isVerified =
+        String(user.adminApprovel).toLowerCase() === "approved";
+
+      const lastActiveDate = user.lastLoginAt || user.updatedAt;
 
       return {
         id: `#${userId}`,
@@ -558,22 +575,35 @@ export const getUsers = async (req, res) => {
         location,
         gender: user.gender || "N/A",
         joined: moment(user.createdAt).format("DD MMM, YYYY"),
-        verified: verifiedStatus ? "Yes" : "No",
-        verifiedIcon: verifiedStatus ? "green" : "red",
+
+        // ✅ SAME RESPONSE KEYS
+        verified: isVerified ? "Yes" : "No",
+        verifiedIcon: isVerified ? "green" : "red",
+
         status:
           user.adminApprovel?.charAt(0).toUpperCase() +
             user.adminApprovel?.slice(1).toLowerCase() || "Pending",
-lastActive: user.lastLogin
-  ? moment(user.lastLogin).format("DD MMM, YYYY")
-  : "N/A",
+
+        lastActive: lastActiveDate
+          ? moment(lastActiveDate).format("DD MMM, YYYY")
+          : "N/A",
       };
     });
 
-    // ------------------------------------
-    // 📤 CSV EXPORT
-    // ------------------------------------
+    /* ====================================
+       📤 CSV EXPORT
+    ==================================== */
     if (csv === "true") {
-      const fields = ["id", "name", "location", "gender", "joined", "verified", "status", "lastActive"];
+      const fields = [
+        "id",
+        "name",
+        "location",
+        "gender",
+        "joined",
+        "verified",
+        "status",
+        "lastActive"
+      ];
       const parser = new Parser({ fields });
       const csvData = parser.parse(formatted);
 
@@ -582,9 +612,9 @@ lastActive: user.lastLogin
       return res.send(csvData);
     }
 
-    // ------------------------------------
-    // 📤 JSON RESPONSE WITH PAGINATION
-    // ------------------------------------
+    /* ====================================
+       📤 JSON RESPONSE (UNCHANGED)
+    ==================================== */
     res.status(200).json({
       currentPage: Number(page),
       totalPages: Math.ceil(totalUsers / Number(limit)),
@@ -598,6 +628,7 @@ lastActive: user.lastLogin
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
 
 
 
