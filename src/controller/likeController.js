@@ -707,20 +707,49 @@ export const getShortlistCount = async (req, res) => {
   try {
     const myUserId = req.userId;
 
-    // Get all shortlisted records with receiver details (same as getIShortlisted)
-    const likes = await LikeModel.find({ senderId: myUserId })
-      .populate('receiverId', `
-        _id id firstName lastName dateOfBirth height religion caste occupation
-        annualIncome highestEducation currentCity city state currentState motherTongue
-        gender profileImage updatedAt createdAt designation
-      `);
+    /* =====================================================
+       1️⃣ Fetch all requests involving me
+    ===================================================== */
+    const requests = await AccountRequestModel.find({
+      $or: [
+        { requesterId: myUserId },
+        { receiverId: myUserId },
+      ],
+    }).select("requesterId receiverId");
 
-    // Apply SAME FILTER as main API
-    const validShortlisted = likes.filter(like => like.receiverId);
+    const requestedUserIds = requests.map((r) =>
+      r.requesterId.toString() === myUserId.toString()
+        ? r.receiverId.toString()
+        : r.requesterId.toString()
+    );
 
+    /* =====================================================
+       2️⃣ Fetch users I have blocked
+    ===================================================== */
+    const blocks = await BlockModel.find({
+      blockedBy: myUserId,
+    }).select("blockedUser");
+
+    const blockedUserIds = blocks.map((b) => b.blockedUser.toString());
+
+    /* =====================================================
+       3️⃣ Fetch ONLY valid shortlisted likes
+       (same logic as getIShortlisted)
+    ===================================================== */
+    const likes = await LikeModel.find({
+      senderId: myUserId,
+      status: "liked", // 🔥 matched users excluded
+      receiverId: {
+        $nin: [...requestedUserIds, ...blockedUserIds],
+      },
+    }).select("_id"); // count ke liye populate ki zarurat nahi
+
+    /* =====================================================
+       4️⃣ Final response (NO CHANGE)
+    ===================================================== */
     return res.status(200).json({
       success: true,
-      count: validShortlisted.length,
+      count: likes.length,
       message: "Shortlisted users count fetched successfully",
     });
 
@@ -733,6 +762,7 @@ export const getShortlistCount = async (req, res) => {
     });
   }
 };
+
 
 
 
