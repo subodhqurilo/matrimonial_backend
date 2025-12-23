@@ -3,7 +3,8 @@ import moment from "moment-timezone";
 import mongoose from "mongoose";
 import ReportModel from '../modal/ReportModel.js';
 import RegisterModel from '../modal/register.js';
-import Admin from "../modal/admin.js";
+import Admin from "../modal/adminModal.js";
+
 
 import NotificationModel from "../modal/Notification.js";
 import { sendExpoPush } from "../utils/expoPush.js"; // expo push function

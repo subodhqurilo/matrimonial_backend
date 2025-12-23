@@ -1,3 +1,5 @@
+import mongoose from "mongoose";   // ✅ THIS LINE WAS MISSING
+
 const notificationSchema = new mongoose.Schema(
   {
     user: {
