@@ -2,6 +2,8 @@ import { LikeModel } from "../modal/likeRequestModal.js";
 import RegisterModel from "../modal/register.js";
 import NotificationModel from "../modal/Notification.js";
 import { sendExpoPush } from "../utils/expoPush.js"; // expo push function
+import { BlockModel } from "../modal/blockModel.js";
+import { AccountRequestModel } from "../modal/accountRequestModel.js";
 
 // Utility to calculate age from DOB
 const calculateAge = (dob) => {
@@ -611,17 +613,57 @@ export const getIShortlisted = async (req, res) => {
   const myUserId = req.userId;
 
   try {
-    const likes = await LikeModel.find({ senderId: myUserId })
-      .populate('receiverId', `
+    /* =====================================================
+       1️⃣ Fetch all requests involving me
+    ===================================================== */
+    const requests = await AccountRequestModel.find({
+      $or: [
+        { requesterId: myUserId },
+        { receiverId: myUserId },
+      ],
+    }).select("requesterId receiverId");
+
+    const requestedUserIds = requests.map((r) =>
+      r.requesterId.toString() === myUserId.toString()
+        ? r.receiverId.toString()
+        : r.requesterId.toString()
+    );
+
+    /* =====================================================
+       2️⃣ Fetch users I have blocked
+    ===================================================== */
+    const blocks = await BlockModel.find({
+      blockedBy: myUserId,
+    }).select("blockedUser");
+
+    const blockedUserIds = blocks.map((b) => b.blockedUser.toString());
+
+    /* =====================================================
+       3️⃣ Fetch shortlisted likes (EXCLUDING above users)
+    ===================================================== */
+    const likes = await LikeModel.find({
+      senderId: myUserId,
+      status: "liked", // 🔥 matched users auto-hide
+      receiverId: {
+        $nin: [...requestedUserIds, ...blockedUserIds],
+      },
+    })
+      .populate(
+        "receiverId",
+        `
         _id id firstName lastName dateOfBirth height religion caste occupation
         annualIncome highestEducation currentCity city state currentState motherTongue
         gender profileImage updatedAt createdAt designation
-      `)
+      `
+      )
       .sort({ createdAt: -1 });
 
+    /* =====================================================
+       4️⃣ Format response (NO CHANGE)
+    ===================================================== */
     const data = likes
-      .filter(like => like.receiverId)
-      .map(like => {
+      .filter((like) => like.receiverId)
+      .map((like) => {
         const user = like.receiverId;
 
         return {
@@ -635,7 +677,9 @@ export const getIShortlisted = async (req, res) => {
           religion: user.religion,
           salary: user.annualIncome,
           education: user.highestEducation,
-          location: `${user.city || user.currentCity || ''}, ${user.state || user.currentState || ''}`,
+          location: `${user.city || user.currentCity || ""}, ${
+            user.state || user.currentState || ""
+          }`,
           languages: user.motherTongue,
           gender: user.gender,
           profileImage: user.profileImage,
@@ -644,10 +688,17 @@ export const getIShortlisted = async (req, res) => {
         };
       });
 
-    res.status(200).json({ success: true, data });
+    return res.status(200).json({
+      success: true,
+      data,
+    });
   } catch (error) {
-    console.error('Error fetching I shortlisted data:', error);
-    res.status(500).json({ success: false, message: 'Error fetching shortlist data', error });
+    console.error("Error fetching I shortlisted data:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching shortlist data",
+      error: error.message,
+    });
   }
 };
 
