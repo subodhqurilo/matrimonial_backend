@@ -70,7 +70,7 @@ app.use("/uploads", express.static("uploads"));
 // Save Expo Token (exactly as before)
 app.post("/save-expo-token", async (req, res) => {
   const { userId, expoToken } = req.body;
-  await RegisterModel.findByIdAndUpdate(userId, { expoToken });
+  await RegisterModel.findByIdAndUpdate(userId, { expoPushToken: expoToken });
   res.json({ success: true });
 });
 

@@ -64,11 +64,17 @@ export const requestAccount = async (req, res) => {
   const { receiverId } = req.body;
 
   if (!requesterId || !receiverId) {
-    return res.status(400).json({ success: false, message: "Both requesterId and receiverId are required" });
+    return res.status(400).json({
+      success: false,
+      message: "Both requesterId and receiverId are required"
+    });
   }
 
   if (requesterId.toString() === receiverId.toString()) {
-    return res.status(400).json({ success: false, message: "You cannot send a request to yourself" });
+    return res.status(400).json({
+      success: false,
+      message: "You cannot send a request to yourself"
+    });
   }
 
   try {
@@ -99,6 +105,47 @@ export const requestAccount = async (req, res) => {
 
     await newRequest.save();
 
+    /* =====================================================
+       🔔 NOTIFICATION SECTION (ADDED ONLY)
+       RULE:
+       - SOCKET → BOTH
+       - PUSH   → RECEIVER ONLY
+    ===================================================== */
+
+    const io = global.io;
+
+    // Fetch receiver for push token
+    const receiverUser = await RegisterModel.findById(receiverId);
+
+    /* ---------- SOCKET → REQUESTER ---------- */
+    io?.to(String(requesterId)).emit("notification", {
+      title: "Request Sent",
+      message: "Your request has been sent successfully.",
+      type: "account-request",
+      requestId: newRequest._id,
+      createdAt: new Date()
+    });
+
+    /* ---------- SOCKET → RECEIVER ---------- */
+    io?.to(String(receiverId)).emit("notification", {
+      title: "New Request Received",
+      message: "You have received a new account request.",
+      type: "account-request",
+      requestId: newRequest._id,
+      createdAt: new Date()
+    });
+
+    /* ---------- PUSH → RECEIVER ONLY ---------- */
+    if (receiverUser?.expoPushToken) {
+      await sendExpoPush(
+        receiverUser.expoPushToken,
+        "New Request Received",
+        "You have received a new account request."
+      );
+    }
+
+    /* ===================================================== */
+
     return res.status(201).json({
       success: true,
       message: "Request sent successfully",
@@ -119,12 +166,16 @@ export const requestAccount = async (req, res) => {
 
 
 
+
 export const updateAccountRequestStatus = async (req, res) => {
   const userId = req.userId; // Logged-in user (receiver)
   const { requestId, status } = req.body;
 
-  if (!['accepted', 'rejected'].includes(status)) {
-    return res.status(400).json({ success: false, message: "Invalid status" });
+  if (!["accepted", "rejected"].includes(status)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid status"
+    });
   }
 
   try {
@@ -141,7 +192,7 @@ export const updateAccountRequestStatus = async (req, res) => {
       });
     }
 
-    // ❗ If already accepted/rejected, prevent repeat actions
+    // ❗ If already accepted/rejected
     if (request.status === status) {
       return res.status(200).json({
         success: true,
@@ -154,8 +205,7 @@ export const updateAccountRequestStatus = async (req, res) => {
     request.status = status;
     await request.save();
 
-    // 🔁 OPTIONAL: Update reverse request for consistency
-    // Example: If A accepts B, B also sees accepted
+    // 🔁 OPTIONAL reverse request
     const reverseRequest = await AccountRequestModel.findOne({
       requesterId: userId,
       receiverId: request.requesterId
@@ -165,6 +215,65 @@ export const updateAccountRequestStatus = async (req, res) => {
       reverseRequest.status = status;
       await reverseRequest.save();
     }
+
+    /* =====================================================
+       🔔 NOTIFICATION SECTION (ADDED ONLY)
+       RULE:
+       - PUSH   → REQUESTER (jisne request bheji)
+       - SOCKET → BOTH USERS
+    ===================================================== */
+
+    const io = global.io;
+
+    // requester = jisne request bheji thi
+    const requesterId = request.requesterId;
+    const receiverId = request.receiverId;
+
+    const requesterUser = await RegisterModel.findById(requesterId);
+
+    const title =
+      status === "accepted"
+        ? "Request Accepted"
+        : "Request Rejected";
+
+    const message =
+      status === "accepted"
+        ? "Your account request has been accepted."
+        : "Your account request has been rejected.";
+
+    /* ---------- SOCKET → REQUESTER ---------- */
+    io?.to(String(requesterId)).emit("notification", {
+      title,
+      message,
+      type: "account-request",
+      status,
+      requestId: request._id,
+      createdAt: new Date()
+    });
+
+    /* ---------- SOCKET → RECEIVER ---------- */
+    io?.to(String(receiverId)).emit("notification", {
+      title,
+      message:
+        status === "accepted"
+          ? "You accepted the account request."
+          : "You rejected the account request.",
+      type: "account-request",
+      status,
+      requestId: request._id,
+      createdAt: new Date()
+    });
+
+    /* ---------- PUSH → REQUESTER ONLY ---------- */
+    if (requesterUser?.expoPushToken) {
+      await sendExpoPush(
+        requesterUser.expoPushToken,
+        title,
+        message
+      );
+    }
+
+    /* ===================================================== */
 
     return res.status(200).json({
       success: true,
@@ -181,6 +290,7 @@ export const updateAccountRequestStatus = async (req, res) => {
     });
   }
 };
+
 
 
 

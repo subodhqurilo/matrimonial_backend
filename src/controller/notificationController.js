@@ -7,7 +7,7 @@ import { sendExpoPush } from "../utils/expoPush.js";
  */
 export const sendNotification = async (req, res) => {
   try {
-    const userId = req.userId;      // logged-in user
+    const userId = req.userId;
     const { title, message } = req.body;
 
     if (!title || !message) {
@@ -24,22 +24,31 @@ export const sendNotification = async (req, res) => {
       read: false,
     });
 
-    // SOCKET Real-time Notification
-    const io = req.app.get("io");
-    io.to(String(userId)).emit("newNotification", saved);
+    // ✅ SOCKET
+    const io = global.io;
+    io?.to(String(userId)).emit("notification", saved);
 
-    // Expo Push Notification
+    // ✅ PUSH
     const user = await RegisterModel.findById(userId);
-    if (user?.expoToken) {
-      await sendExpoPush(user.expoToken, title, message);
+    if (user?.expoPushToken) {
+      await sendExpoPush(
+        user.expoPushToken,
+        title,
+        message
+      );
     }
 
     return res.json({ success: true, data: saved });
 
   } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
+
+
 
 
 /**
