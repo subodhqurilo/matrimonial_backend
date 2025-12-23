@@ -3,6 +3,8 @@ import moment from "moment-timezone";
 import mongoose from "mongoose";
 import ReportModel from '../modal/ReportModel.js';
 import RegisterModel from '../modal/register.js';
+import Admin from "../modal/admin.js";
+
 import NotificationModel from "../modal/Notification.js";
 import { sendExpoPush } from "../utils/expoPush.js"; // expo push function
 
@@ -63,75 +65,65 @@ export const createReport = async (req, res) => {
       .populate("reportedUser", "id fullName email profileImage gender adminApprovel");
 
     /* =====================================================
-       🔔 NOTIFICATION SECTION (ONLY ADDITION)
+       🔔 NOTIFICATION SECTION (FIXED & WORKING)
     ===================================================== */
 
     const io = global.io;
-    const ADMIN_ID = "68821cc7d845954b1afa5537";
 
-    /* ========== 1️⃣ NOTIFY REPORTED USER ========== */
+    /* ========== 1️⃣ REPORTED USER ========== */
     const reportedUserNotification = await NotificationModel.create({
       user: reportedUser,
+      userModel: "Register",
       title: "You have been reported",
       message: "A report has been submitted against your profile.",
-      type: "report",
-      referenceId: newReport._id,
     });
 
-    // socket
     io?.to(String(reportedUser)).emit("notification", reportedUserNotification);
 
-    // push (expo)
-    if (reportedUserData.expoPushToken) {
+    if (reportedUserData.expoToken) {
       await sendExpoPush(
-        reportedUserData.expoPushToken,
+        reportedUserData.expoToken,
         "You have been reported",
         "A report has been submitted against your profile."
       );
     }
 
-    /* ========== 2️⃣ NOTIFY REPORTER ========== */
+    /* ========== 2️⃣ REPORTER ========== */
     const reporterUser = await RegisterModel.findById(reporter);
 
     const reporterNotification = await NotificationModel.create({
       user: reporter,
+      userModel: "Register",
       title: "Report submitted",
       message: "Your report has been sent to admin for review.",
-      type: "report",
-      referenceId: newReport._id,
     });
 
-    // socket
     io?.to(String(reporter)).emit("notification", reporterNotification);
 
-    // push
-    if (reporterUser?.expoPushToken) {
+    if (reporterUser?.expoToken) {
       await sendExpoPush(
-        reporterUser.expoPushToken,
+        reporterUser.expoToken,
         "Report submitted",
         "Your report has been sent to admin for review."
       );
     }
 
-    /* ========== 3️⃣ NOTIFY ADMIN (FIXED ID) ========== */
-    const adminUser = await RegisterModel.findById(ADMIN_ID);
+    /* ========== 3️⃣ ADMINS (REAL FIX HERE) ========== */
+    const admins = await Admin.find({ role: "Admin" });
 
-    if (adminUser) {
+    for (const admin of admins) {
       const adminNotification = await NotificationModel.create({
-        user: ADMIN_ID,
+        user: admin._id,
+        userModel: "Admin",
         title: "New report received",
         message: "A new user report has been submitted. Please review.",
-        type: "report",
-        referenceId: newReport._id,
       });
 
-      // socket
-      io?.to(String(ADMIN_ID)).emit("notification", adminNotification);
+      io?.to(String(admin._id)).emit("notification", adminNotification);
 
-      // push
-      if (adminUser.expoPushToken) {
+      if (admin.expoToken) {
         await sendExpoPush(
-          adminUser.expoPushToken,
+          admin.expoToken,
           "New report received",
           "A new user report has been submitted. Please review."
         );
@@ -155,6 +147,7 @@ export const createReport = async (req, res) => {
     });
   }
 };
+
 
 
 

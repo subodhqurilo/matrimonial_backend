@@ -69,6 +69,7 @@ export const getNotifications = async (req, res) => {
 };
 
 
+
 /**
  * 3) MARK A SINGLE NOTIFICATION AS READ
  */
