@@ -78,7 +78,6 @@ export const requestAccount = async (req, res) => {
   }
 
   try {
-    // 🔍 Check if any request already exists (both directions)
     const existing = await AccountRequestModel.findOne({
       $or: [
         { requesterId, receiverId },
@@ -96,7 +95,6 @@ export const requestAccount = async (req, res) => {
       });
     }
 
-    // ➕ Create new request
     const newRequest = new AccountRequestModel({
       requesterId,
       receiverId,
@@ -106,39 +104,38 @@ export const requestAccount = async (req, res) => {
     await newRequest.save();
 
     /* =====================================================
-       🔔 NOTIFICATION SECTION (ADDED ONLY)
-       RULE:
+       🔔 NOTIFICATION SECTION (ONLY ADDITION)
+       - DB  → BOTH
        - SOCKET → BOTH
-       - PUSH   → RECEIVER ONLY
+       - PUSH → RECEIVER ONLY
     ===================================================== */
 
     const io = global.io;
 
-    // Fetch receiver for push token
     const receiverUser = await RegisterModel.findById(receiverId);
 
-    /* ---------- SOCKET → REQUESTER ---------- */
-    io?.to(String(requesterId)).emit("notification", {
+    /* ---------- DB + SOCKET → REQUESTER ---------- */
+    const requesterNotification = await NotificationModel.create({
+      user: requesterId,
       title: "Request Sent",
-      message: "Your request has been sent successfully.",
-      type: "account-request",
-      requestId: newRequest._id,
-      createdAt: new Date()
+      message: "Your account request has been sent successfully."
     });
 
-    /* ---------- SOCKET → RECEIVER ---------- */
-    io?.to(String(receiverId)).emit("notification", {
+    io?.to(String(requesterId)).emit("notification", requesterNotification);
+
+    /* ---------- DB + SOCKET → RECEIVER ---------- */
+    const receiverNotification = await NotificationModel.create({
+      user: receiverId,
       title: "New Request Received",
-      message: "You have received a new account request.",
-      type: "account-request",
-      requestId: newRequest._id,
-      createdAt: new Date()
+      message: "You have received a new account request."
     });
+
+    io?.to(String(receiverId)).emit("notification", receiverNotification);
 
     /* ---------- PUSH → RECEIVER ONLY ---------- */
-    if (receiverUser?.expoPushToken) {
+    if (receiverUser?.expoToken) {
       await sendExpoPush(
-        receiverUser.expoPushToken,
+        receiverUser.expoToken,
         "New Request Received",
         "You have received a new account request."
       );
@@ -161,6 +158,7 @@ export const requestAccount = async (req, res) => {
     });
   }
 };
+
 
 
 
@@ -217,17 +215,17 @@ export const updateAccountRequestStatus = async (req, res) => {
     }
 
     /* =====================================================
-       🔔 NOTIFICATION SECTION (ADDED ONLY)
+       🔔 NOTIFICATION SECTION (COMPLETE & FIXED)
        RULE:
-       - PUSH   → REQUESTER (jisne request bheji)
+       - DB     → BOTH USERS
        - SOCKET → BOTH USERS
+       - PUSH   → REQUESTER ONLY
     ===================================================== */
 
     const io = global.io;
 
-    // requester = jisne request bheji thi
-    const requesterId = request.requesterId;
-    const receiverId = request.receiverId;
+    const requesterId = request.requesterId; // jisne request bheji
+    const receiverId = request.receiverId;   // jisne accept/reject ki
 
     const requesterUser = await RegisterModel.findById(requesterId);
 
@@ -236,40 +234,44 @@ export const updateAccountRequestStatus = async (req, res) => {
         ? "Request Accepted"
         : "Request Rejected";
 
-    const message =
+    const requesterMessage =
       status === "accepted"
         ? "Your account request has been accepted."
         : "Your account request has been rejected.";
 
-    /* ---------- SOCKET → REQUESTER ---------- */
-    io?.to(String(requesterId)).emit("notification", {
+    const receiverMessage =
+      status === "accepted"
+        ? "You accepted the account request."
+        : "You rejected the account request.";
+
+    /* ---------- DB → REQUESTER ---------- */
+    const requesterNotification = await NotificationModel.create({
+      user: requesterId,
       title,
-      message,
-      type: "account-request",
-      status,
-      requestId: request._id,
-      createdAt: new Date()
+      message: requesterMessage,
+      read: false
     });
+
+    /* ---------- DB → RECEIVER ---------- */
+    const receiverNotification = await NotificationModel.create({
+      user: receiverId,
+      title,
+      message: receiverMessage,
+      read: false
+    });
+
+    /* ---------- SOCKET → REQUESTER ---------- */
+    io?.to(String(requesterId)).emit("notification", requesterNotification);
 
     /* ---------- SOCKET → RECEIVER ---------- */
-    io?.to(String(receiverId)).emit("notification", {
-      title,
-      message:
-        status === "accepted"
-          ? "You accepted the account request."
-          : "You rejected the account request.",
-      type: "account-request",
-      status,
-      requestId: request._id,
-      createdAt: new Date()
-    });
+    io?.to(String(receiverId)).emit("notification", receiverNotification);
 
     /* ---------- PUSH → REQUESTER ONLY ---------- */
-    if (requesterUser?.expoPushToken) {
+    if (requesterUser?.expoToken) {
       await sendExpoPush(
-        requesterUser.expoPushToken,
+        requesterUser.expoToken,
         title,
-        message
+        requesterMessage
       );
     }
 
@@ -290,6 +292,7 @@ export const updateAccountRequestStatus = async (req, res) => {
     });
   }
 };
+
 
 
 

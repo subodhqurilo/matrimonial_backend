@@ -295,7 +295,6 @@ export const registerDetails = async (req, res) => {
     const adhaarFront = req.files?.adhaarCardFrontImage?.[0]?.path;
     const adhaarBack = req.files?.adhaarCardBackImage?.[0]?.path;
 
-    /* ================= BOOLEAN HELPERS ================= */
     const toBoolean = (val) => {
       if (val === "true" || val === true || val === "Yes") return true;
       if (val === "false" || val === false || val === "No") return false;
@@ -313,7 +312,7 @@ export const registerDetails = async (req, res) => {
       "ownHouse",
       "ownCar",
       "openToPets",
-      "casteNoBar",
+      "casteNoBar"
     ];
 
     booleanFields.forEach((field) => {
@@ -322,20 +321,18 @@ export const registerDetails = async (req, res) => {
       }
     });
 
-    /* ================= FETCH USER ================= */
     const user = await RegisterModel.findById(userId);
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    /* ================= UPDATE USER ================= */
     const updateData = {
       ...req.body,
       profileImage: profileImage || user.profileImage,
       adhaarCard: {
         frontImage: adhaarFront || user.adhaarCard?.frontImage || null,
         backImage: adhaarBack || user.adhaarCard?.backImage || null,
-      },
+      }
     };
 
     const updatedUser = await RegisterModel.findByIdAndUpdate(
@@ -345,52 +342,23 @@ export const registerDetails = async (req, res) => {
     );
 
     /* =====================================================
-       🔔 NOTIFICATION SECTION (FIXED AS REQUESTED)
+       🔔 ADMIN NOTIFICATION (ONLY THIS PART ADDED)
     ===================================================== */
 
-    const io = req.app.get("io");
-    const ADMIN_ID = "68821cc7d845954b1afa5537";
+    const ADMIN_ID = new mongoose.Types.ObjectId("68821cc7d845954b1afa5537");
+    const io = global.io;
 
-    const adminMessage =
-      "A user has submitted profile details and Aadhaar documents for verification.";
-
-    /* ---------- 1️⃣ USER → SOCKET ONLY ---------- */
-    io?.to(String(userId)).emit("notification", {
-      title: "Profile Submitted",
-      message: "Your profile details have been submitted for admin verification.",
-      type: "verification-request",
-      createdAt: new Date(),
+    const adminNotification = await NotificationModel.create({
+      user: ADMIN_ID,
+      title: "Profile verification request",
+      message: "A user has submitted profile details and Aadhaar documents.",
     });
 
-    /* ---------- 2️⃣ ADMIN → SOCKET + PUSH + DB ---------- */
-    const adminUser = await RegisterModel.findById(ADMIN_ID);
+    // socket notification to admin
+    io?.to(String(ADMIN_ID)).emit("notification", adminNotification);
 
-    if (adminUser) {
-      // ✅ DB notification for admin
-      const adminNotification = await NotificationModel.create({
-        user: ADMIN_ID,
-        title: "Verification Required",
-        message: adminMessage,
-        type: "verification-request",
-        referenceId: userId,
-      });
+    /* ===================================================== */
 
-      // ✅ Socket notification for admin
-      io?.to(String(ADMIN_ID)).emit("notification", adminNotification);
-
-      // ✅ Push notification for admin ONLY
-      if (adminUser.expoPushToken) {
-        await sendExpoPush(
-          adminUser.expoPushToken,
-          "Verification Required",
-          adminMessage
-        );
-      }
-    }
-
-    /* =====================================================
-       ✅ RESPONSE — SAME (NO CHANGE)
-    ===================================================== */
     return res.status(200).json({
       success: true,
       message: "User profile updated successfully",
@@ -406,6 +374,7 @@ export const registerDetails = async (req, res) => {
     });
   }
 };
+
 
 
 
