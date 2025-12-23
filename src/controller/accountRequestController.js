@@ -60,138 +60,57 @@ export const formatUserProfile = (user) => {
 
 
 export const requestAccount = async (req, res) => {
+  const requesterId = req.userId;
+  const { receiverId } = req.body;
+
+  if (!requesterId || !receiverId) {
+    return res.status(400).json({ success: false, message: "Both requesterId and receiverId are required" });
+  }
+
+  if (requesterId.toString() === receiverId.toString()) {
+    return res.status(400).json({ success: false, message: "You cannot send a request to yourself" });
+  }
+
   try {
-    const requesterId = req.userId;
-    const { receiverId } = req.body;
-
-    /* =====================================================
-       ❌ BASIC VALIDATIONS
-    ===================================================== */
-    if (!requesterId || !receiverId) {
-      return res.status(400).json({
-        success: false,
-        message: "Both requesterId and receiverId are required",
-      });
-    }
-
-    if (requesterId.toString() === receiverId.toString()) {
-      return res.status(400).json({
-        success: false,
-        message: "You cannot send a request to yourself",
-      });
-    }
-
-    /* =====================================================
-       🔍 CHECK EXISTING / REVERSE REQUEST
-    ===================================================== */
-    const existingRequest = await AccountRequestModel.findOne({
+    // 🔍 Check if any request already exists (both directions)
+    const existing = await AccountRequestModel.findOne({
       $or: [
         { requesterId, receiverId },
-        { requesterId: receiverId, receiverId: requesterId },
-      ],
+        { requesterId: receiverId, receiverId: requesterId }
+      ]
     });
 
-    if (existingRequest) {
+    if (existing) {
       return res.status(400).json({
         success: false,
         message:
-          existingRequest.status === "accepted"
+          existing.status === "accepted"
             ? "You are already connected"
-            : "A request already exists",
+            : "A request already exists"
       });
     }
 
-    /* =====================================================
-       📨 CREATE NEW REQUEST
-    ===================================================== */
-    const newRequest = await AccountRequestModel.create({
+    // ➕ Create new request
+    const newRequest = new AccountRequestModel({
       requesterId,
       receiverId,
-      status: "pending",
+      status: "pending"
     });
 
-    /* =====================================================
-       👤 FETCH BOTH USERS
-    ===================================================== */
-    const requesterUser = await RegisterModel.findById(requesterId).select(
-      "expoPushToken fullName"
-    );
-    const receiverUser = await RegisterModel.findById(receiverId).select(
-      "expoPushToken fullName"
-    );
+    await newRequest.save();
 
-    /* =====================================================
-       🔔 NOTIFICATION CONTENT
-    ===================================================== */
-    const title = "Account Request Update";
-
-    const msgForReceiver = "You received a new account request.";
-    const msgForRequester = "Your account request has been sent.";
-
-    /* =====================================================
-       📱 EXPO PUSH NOTIFICATIONS
-    ===================================================== */
-    if (receiverUser?.expoPushToken) {
-      sendExpoPush(
-        receiverUser.expoPushToken,
-        title,
-        msgForReceiver
-      ).catch((err) =>
-        console.log("❌ Expo Push Error (Receiver):", err)
-      );
-    }
-
-    if (requesterUser?.expoPushToken) {
-      sendExpoPush(
-        requesterUser.expoPushToken,
-        title,
-        msgForRequester
-      ).catch((err) =>
-        console.log("❌ Expo Push Error (Requester):", err)
-      );
-    }
-
-    /* =====================================================
-       🔴 SOCKET NOTIFICATIONS
-    ===================================================== */
-    const io = req.app.get("io");
-
-    if (io) {
-      // Receiver notification
-      io.to(String(receiverId)).emit("newNotification", {
-        title,
-        message: msgForReceiver,
-        type: "request_received",
-        requestId: newRequest._id,
-        actor: requesterId,
-        createdAt: new Date(),
-      });
-
-      // Requester notification
-      io.to(String(requesterId)).emit("newNotification", {
-        title,
-        message: msgForRequester,
-        type: "request_sent",
-        requestId: newRequest._id,
-        actor: requesterId,
-        createdAt: new Date(),
-      });
-    }
-
-    /* =====================================================
-       ✅ RESPONSE (UNCHANGED)
-    ===================================================== */
     return res.status(201).json({
       success: true,
       message: "Request sent successfully",
-      request: newRequest,
+      request: newRequest
     });
+
   } catch (error) {
-    console.error("❌ requestAccount Error:", error);
+    console.error("❌ requestAccount error:", error);
     return res.status(500).json({
       success: false,
       message: "Server error",
-      error: error.message,
+      error: error.message
     });
   }
 };
@@ -199,45 +118,47 @@ export const requestAccount = async (req, res) => {
 
 
 
+
 export const updateAccountRequestStatus = async (req, res) => {
-  const userId = req.userId; // Receiver (logged-in user)
+  const userId = req.userId; // Logged-in user (receiver)
   const { requestId, status } = req.body;
 
-  if (!["accepted", "rejected"].includes(status)) {
+  if (!['accepted', 'rejected'].includes(status)) {
     return res.status(400).json({ success: false, message: "Invalid status" });
   }
 
   try {
-    // 1️⃣ Find main request
+    // 🔍 Find the request where YOU are the receiver
     const request = await AccountRequestModel.findOne({
       _id: requestId,
-      receiverId: userId,
+      receiverId: userId
     });
 
     if (!request) {
       return res.status(404).json({
         success: false,
-        message: "Request not found or you are not authorized",
+        message: "Request not found or you are not authorized"
       });
     }
 
-    // Already accepted/rejected?
+    // ❗ If already accepted/rejected, prevent repeat actions
     if (request.status === status) {
       return res.status(200).json({
         success: true,
         message: `Request already ${status}`,
-        request,
+        request
       });
     }
 
-    // 2️⃣ Update main request
+    // ✔ Update request status
     request.status = status;
     await request.save();
 
-    // 3️⃣ Update reverse request (optional)
+    // 🔁 OPTIONAL: Update reverse request for consistency
+    // Example: If A accepts B, B also sees accepted
     const reverseRequest = await AccountRequestModel.findOne({
       requesterId: userId,
-      receiverId: request.requesterId,
+      receiverId: request.requesterId
     });
 
     if (reverseRequest) {
@@ -245,102 +166,28 @@ export const updateAccountRequestStatus = async (req, res) => {
       await reverseRequest.save();
     }
 
-    /* =====================================================
-       🔔 NOTIFICATIONS (ADDED ONLY)
-    ===================================================== */
-
-    const requesterId = request.requesterId;
-    const receiverId = request.receiverId;
-
-    const requesterUser = await RegisterModel.findById(requesterId).select(
-      "expoPushToken fullName"
-    );
-    const receiverUser = await RegisterModel.findById(receiverId).select(
-      "expoPushToken fullName"
-    );
-
-    const requesterMsg =
-      status === "accepted"
-        ? "Your request has been accepted."
-        : "Your request has been rejected.";
-
-    const receiverMsg =
-      status === "accepted"
-        ? "You have accepted the request."
-        : "You have rejected the request.";
-
-    // 🔔 Save notification (DB)
-    await NotificationModel.create({
-      userId: requesterId,
-      message: requesterMsg,
-      type: "request-update",
-      fromUser: receiverId,
-    });
-
-    await NotificationModel.create({
-      userId: receiverId,
-      message: receiverMsg,
-      type: "request-update",
-      fromUser: requesterId,
-    });
-
-    // 📱 Expo Push
-    if (requesterUser?.expoPushToken) {
-      sendExpoPush(
-        requesterUser.expoPushToken,
-        "Request Update",
-        requesterMsg
-      ).catch(() => {});
-    }
-
-    if (receiverUser?.expoPushToken) {
-      sendExpoPush(
-        receiverUser.expoPushToken,
-        "Request Update",
-        receiverMsg
-      ).catch(() => {});
-    }
-
-    // 🔴 Socket
-    const io = req.app.get("io");
-
-    if (io) {
-      io.to(String(requesterId)).emit("newNotification", {
-        title: "Request Update",
-        message: requesterMsg,
-        type: "request-update",
-        requestId,
-        from: receiverId,
-        createdAt: new Date(),
-      });
-
-      io.to(String(receiverId)).emit("newNotification", {
-        title: "Request Update",
-        message: receiverMsg,
-        type: "request-update",
-        requestId,
-        from: requesterId,
-        createdAt: new Date(),
-      });
-    }
-
-    /* =====================================================
-       ⚠️ RESPONSE — SAME (NO CHANGE)
-    ===================================================== */
     return res.status(200).json({
       success: true,
       message: `Request ${status} successfully`,
-      request,
+      request
     });
+
   } catch (error) {
     console.error("❌ updateAccountRequestStatus error:", error);
     return res.status(500).json({
       success: false,
       message: "Server error",
-      error: error.message,
+      error: error.message
     });
   }
 };
+
+
+
+
+
+
+
 
 
 

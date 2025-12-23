@@ -14,6 +14,7 @@ export const createReport = async (req, res) => {
     const reporter = req.userId;
     const { reportedUser, title, description = "" } = req.body;
 
+    /* ================= VALIDATIONS ================= */
     if (!reportedUser || !title) {
       return res.status(400).json({
         success: false,
@@ -35,14 +36,15 @@ export const createReport = async (req, res) => {
       });
     }
 
-    const userExists = await RegisterModel.findById(reportedUser);
-    if (!userExists) {
+    const reportedUserData = await RegisterModel.findById(reportedUser);
+    if (!reportedUserData) {
       return res.status(404).json({
         success: false,
         message: "Reported user not found",
       });
     }
 
+    /* ================= CREATE REPORT ================= */
     const reportImages = Array.isArray(req.files)
       ? req.files.map((file) => file.path)
       : [];
@@ -61,53 +63,77 @@ export const createReport = async (req, res) => {
       .populate("reportedUser", "id fullName email profileImage gender adminApprovel");
 
     /* =====================================================
-       🔔 NOTIFICATION SECTION (ADD ONLY)
+       🔔 NOTIFICATION SECTION (ONLY ADDITION)
     ===================================================== */
 
     const io = global.io;
+    const ADMIN_ID = "68821cc7d845954b1afa5537";
 
-    /* ---------- 1️⃣ NOTIFY REPORTED USER ---------- */
+    /* ========== 1️⃣ NOTIFY REPORTED USER ========== */
     const reportedUserNotification = await NotificationModel.create({
       user: reportedUser,
       title: "You have been reported",
-      message: `A report has been submitted against your profile.`,
+      message: "A report has been submitted against your profile.",
       type: "report",
       referenceId: newReport._id,
     });
 
-    // socket notification
+    // socket
     io?.to(String(reportedUser)).emit("notification", reportedUserNotification);
 
-    // push notification
-    if (userExists.fcmToken) {
-      await sendPushNotification(
-        userExists.fcmToken,
+    // push (expo)
+    if (reportedUserData.expoPushToken) {
+      await sendExpoPush(
+        reportedUserData.expoPushToken,
         "You have been reported",
         "A report has been submitted against your profile."
       );
     }
 
-    /* ---------- 2️⃣ NOTIFY ADMINS ---------- */
-    const admins = await RegisterModel.find({ role: "Admin" });
+    /* ========== 2️⃣ NOTIFY REPORTER ========== */
+    const reporterUser = await RegisterModel.findById(reporter);
 
-    for (const admin of admins) {
+    const reporterNotification = await NotificationModel.create({
+      user: reporter,
+      title: "Report submitted",
+      message: "Your report has been sent to admin for review.",
+      type: "report",
+      referenceId: newReport._id,
+    });
+
+    // socket
+    io?.to(String(reporter)).emit("notification", reporterNotification);
+
+    // push
+    if (reporterUser?.expoPushToken) {
+      await sendExpoPush(
+        reporterUser.expoPushToken,
+        "Report submitted",
+        "Your report has been sent to admin for review."
+      );
+    }
+
+    /* ========== 3️⃣ NOTIFY ADMIN (FIXED ID) ========== */
+    const adminUser = await RegisterModel.findById(ADMIN_ID);
+
+    if (adminUser) {
       const adminNotification = await NotificationModel.create({
-        user: admin._id,
-        title: "New report submitted",
-        message: `A new report has been submitted by a user.`,
+        user: ADMIN_ID,
+        title: "New report received",
+        message: "A new user report has been submitted. Please review.",
         type: "report",
         referenceId: newReport._id,
       });
 
       // socket
-      io?.to(String(admin._id)).emit("notification", adminNotification);
+      io?.to(String(ADMIN_ID)).emit("notification", adminNotification);
 
       // push
-      if (admin.fcmToken) {
-        await sendPushNotification(
-          admin.fcmToken,
-          "New report submitted",
-          "A user has submitted a new report. Please review."
+      if (adminUser.expoPushToken) {
+        await sendExpoPush(
+          adminUser.expoPushToken,
+          "New report received",
+          "A new user report has been submitted. Please review."
         );
       }
     }
@@ -122,13 +148,14 @@ export const createReport = async (req, res) => {
 
   } catch (err) {
     console.error("[Report Create Error]", err);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Error creating report",
       error: err.message,
     });
   }
 };
+
 
 
 

@@ -295,19 +295,17 @@ export const registerDetails = async (req, res) => {
     const adhaarFront = req.files?.adhaarCardFrontImage?.[0]?.path;
     const adhaarBack = req.files?.adhaarCardBackImage?.[0]?.path;
 
-    // Convert string values from Postman into Boolean
+    /* ================= BOOLEAN HELPERS ================= */
     const toBoolean = (val) => {
       if (val === "true" || val === true || val === "Yes") return true;
       if (val === "false" || val === false || val === "No") return false;
       return val;
     };
 
-    // Fix array issues from React Native
     if (Array.isArray(req.body.maritalStatus)) {
       req.body.maritalStatus = req.body.maritalStatus[0];
     }
 
-    // Convert required Boolean fields
     const booleanFields = [
       "willingToMarryOtherCaste",
       "isChildrenLivingWithYou",
@@ -324,13 +322,13 @@ export const registerDetails = async (req, res) => {
       }
     });
 
-    // Fetch old user
+    /* ================= FETCH USER ================= */
     const user = await RegisterModel.findById(userId);
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    // Build update object
+    /* ================= UPDATE USER ================= */
     const updateData = {
       ...req.body,
       profileImage: profileImage || user.profileImage,
@@ -340,7 +338,6 @@ export const registerDetails = async (req, res) => {
       },
     };
 
-    // Save updated user
     const updatedUser = await RegisterModel.findByIdAndUpdate(
       userId,
       { $set: updateData },
@@ -348,41 +345,58 @@ export const registerDetails = async (req, res) => {
     );
 
     /* =====================================================
-       🔔 ADMIN NOTIFICATION (ADDED ONLY)
+       🔔 NOTIFICATION SECTION (FIXED AS REQUESTED)
     ===================================================== */
+
+    const io = req.app.get("io");
+    const ADMIN_ID = "68821cc7d845954b1afa5537";
 
     const adminMessage =
       "A user has submitted profile details and Aadhaar documents for verification.";
 
-    // 🔔 Save notification for ADMIN (DB)
-    await NotificationModel.create({
-      userId: "ADMIN", // ya tumhare admin userId / role based logic
-      message: adminMessage,
+    /* ---------- 1️⃣ USER → SOCKET ONLY ---------- */
+    io?.to(String(userId)).emit("notification", {
+      title: "Profile Submitted",
+      message: "Your profile details have been submitted for admin verification.",
       type: "verification-request",
-      fromUser: userId,
+      createdAt: new Date(),
     });
 
-    // 🔴 Socket → ADMIN ROOM
-    const io = req.app.get("io");
-    if (io) {
-      io.to("admin").emit("newNotification", {
+    /* ---------- 2️⃣ ADMIN → SOCKET + PUSH + DB ---------- */
+    const adminUser = await RegisterModel.findById(ADMIN_ID);
+
+    if (adminUser) {
+      // ✅ DB notification for admin
+      const adminNotification = await NotificationModel.create({
+        user: ADMIN_ID,
         title: "Verification Required",
         message: adminMessage,
         type: "verification-request",
-        userId,
-        createdAt: new Date(),
+        referenceId: userId,
       });
+
+      // ✅ Socket notification for admin
+      io?.to(String(ADMIN_ID)).emit("notification", adminNotification);
+
+      // ✅ Push notification for admin ONLY
+      if (adminUser.expoPushToken) {
+        await sendExpoPush(
+          adminUser.expoPushToken,
+          "Verification Required",
+          adminMessage
+        );
+      }
     }
 
     /* =====================================================
        ✅ RESPONSE — SAME (NO CHANGE)
     ===================================================== */
-
     return res.status(200).json({
       success: true,
       message: "User profile updated successfully",
       data: updatedUser,
     });
+
   } catch (error) {
     console.error("RegisterDetails Error:", error);
     res.status(500).json({
@@ -392,6 +406,7 @@ export const registerDetails = async (req, res) => {
     });
   }
 };
+
 
 
 
