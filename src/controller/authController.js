@@ -342,20 +342,41 @@ export const registerDetails = async (req, res) => {
     );
 
     /* =====================================================
-       🔔 ADMIN NOTIFICATION (ONLY THIS PART ADDED)
+       🔔 ADMIN NOTIFICATION (FIXED & SAFE)
+       SAME PATTERN AS createReport
     ===================================================== */
 
-    const ADMIN_ID = new mongoose.Types.ObjectId("68821cc7d845954b1afa5537");
-    const io = global.io;
+    try {
+      const io = global.io;
 
-    const adminNotification = await NotificationModel.create({
-      user: ADMIN_ID,
-      title: "Profile verification request",
-      message: "A user has submitted profile details and Aadhaar documents.",
-    });
+      // 🔥 REAL ADMINS (not hardcoded)
+      const admins = await AdminModel.find({ role: "Admin" });
 
-    // socket notification to admin
-    io?.to(String(ADMIN_ID)).emit("notification", adminNotification);
+      for (const admin of admins) {
+        const adminNotification = await NotificationModel.create({
+          user: admin._id,
+          userModel: "Admin",
+          title: "Profile verification request",
+          message: "A user has submitted profile details and Aadhaar documents."
+        });
+
+        io?.to(String(admin._id)).emit(
+          "notification",
+          adminNotification
+        );
+
+        if (admin.expoToken) {
+          await sendExpoPush(
+            admin.expoToken,
+            "Profile verification request",
+            "A user has submitted profile details and Aadhaar documents."
+          );
+        }
+      }
+    } catch (notifyErr) {
+      // 🔥 notification fail ho bhi jaye → API NEVER FAIL
+      console.error("⚠️ Admin notification error (ignored):", notifyErr.message);
+    }
 
     /* ===================================================== */
 
@@ -367,13 +388,14 @@ export const registerDetails = async (req, res) => {
 
   } catch (error) {
     console.error("RegisterDetails Error:", error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Server error",
       error: error.message,
     });
   }
 };
+
 
 
 
