@@ -1,6 +1,10 @@
 
-import RegisterModel from '../modal/register.js';
 import mongoose from 'mongoose'; 
+import RegisterModel from '../modal/register.js';
+
+import NotificationModel from "../modal/Notification.js";
+import { sendExpoPush } from "../utils/expoPush.js";
+
 import ReportModel from '../modal/ReportModel.js';
 import MatchModel from '../modal/MatchModel.js';
 import moment from "moment-timezone";
@@ -9,8 +13,7 @@ import AdminModel from "../modal/adminModal.js"; // make sure correct path
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import cloudinary from "../utils/cloudinary.js";
-import NotificationModel from "../modal/Notification.js";
-import { sendExpoPush } from "../utils/expoPush.js"; // expo push function
+
 
 
 const ADMIN_JWT_SECRET = process.env.JWT_SECRET || "your_secret_key";
@@ -946,9 +949,9 @@ export const updateUserById = async (req, res) => {
     const { userId } = req.params;
     let updateFields = req.body;
 
-    // ------------------------------------
-    // 🛡 SAFE UPDATE: Only allow valid fields
-    // ------------------------------------
+    /* ------------------------------------
+       🛡 SAFE UPDATE: Only allow valid fields
+    ------------------------------------ */
     const allowedFields = [
       "fullName",
       "firstName",
@@ -973,9 +976,9 @@ export const updateUserById = async (req, res) => {
       }
     }
 
-    // ------------------------------------
-    // 🟡 NORMALIZE STATUS
-    // ------------------------------------
+    /* ------------------------------------
+       🟡 NORMALIZE STATUS
+    ------------------------------------ */
     if (filteredUpdate.adminApprovel) {
       const val = filteredUpdate.adminApprovel.toLowerCase();
       const validStatus = ["approved", "pending", "reject", "blocked"];
@@ -990,18 +993,18 @@ export const updateUserById = async (req, res) => {
       filteredUpdate.adminApprovel = val;
     }
 
-    // ------------------------------------
-    // 🟣 NORMALIZE GENDER
-    // ------------------------------------
+    /* ------------------------------------
+       🟣 NORMALIZE GENDER
+    ------------------------------------ */
     if (filteredUpdate.gender) {
       filteredUpdate.gender =
         filteredUpdate.gender.charAt(0).toUpperCase() +
         filteredUpdate.gender.slice(1).toLowerCase();
     }
 
-    // ------------------------------------
-    // 🔄 UPDATE USER
-    // ------------------------------------
+    /* ------------------------------------
+       🔄 UPDATE USER
+    ------------------------------------ */
     const updatedUser = await RegisterModel.findByIdAndUpdate(
       userId,
       filteredUpdate,
@@ -1016,7 +1019,7 @@ export const updateUserById = async (req, res) => {
     }
 
     /* =====================================================
-       🔔 NOTIFICATION (ADDED ONLY)
+       🔔 NOTIFICATION (FIXED – SCHEMA MATCHING)
     ===================================================== */
 
     let notificationMessage = "Your profile information has been updated.";
@@ -1033,37 +1036,30 @@ export const updateUserById = async (req, res) => {
         statusMap[filteredUpdate.adminApprovel] || notificationMessage;
     }
 
-    // 🔔 Save notification in DB
-    await NotificationModel.create({
-      userId,
+    // ✅ SAVE NOTIFICATION IN DB
+    const savedNotification = await NotificationModel.create({
+      user: updatedUser._id,
+      title: "Profile Update",
       message: notificationMessage,
-      type: "profile-update",
-      fromUser: req.userId || null,
+      read: false,
     });
 
-    // 📱 Expo Push
-    if (updatedUser?.expoPushToken) {
+    // 🔴 SOCKET NOTIFICATION
+    const io = req.app.get("io");
+    io?.to(String(updatedUser._id)).emit("notification", savedNotification);
+
+    // 📱 PUSH (EXPO)
+    if (updatedUser?.expoToken) {
       sendExpoPush(
-        updatedUser.expoPushToken,
+        updatedUser.expoToken,
         "Profile Update",
         notificationMessage
       ).catch(() => {});
     }
 
-    // 🔴 Socket
-    const io = req.app.get("io");
-    if (io) {
-      io.to(String(userId)).emit("newNotification", {
-        title: "Profile Update",
-        message: notificationMessage,
-        type: "profile-update",
-        createdAt: new Date(),
-      });
-    }
-
-    // ------------------------------------
-    // 🎨 CLEAN CLEAN RESPONSE (SAME)
-    // ------------------------------------
+    /* ------------------------------------
+       🎨 CLEAN RESPONSE (UNCHANGED)
+    ------------------------------------ */
     const formatted = {
       id: updatedUser._id,
       fullName: updatedUser.fullName,
@@ -1077,19 +1073,22 @@ export const updateUserById = async (req, res) => {
       lastActive: updatedUser.lastLoginAt,
     };
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "User updated successfully",
       data: formatted,
     });
+
   } catch (error) {
-    res.status(500).json({
+    console.error("updateUserById error:", error);
+    return res.status(500).json({
       success: false,
       message: "Error updating user",
       error: error.message,
     });
   }
 };
+
 
 
 
@@ -1665,7 +1664,7 @@ export const updateReportStatus = async (req, res) => {
     await report.save();
 
     /* =====================================================
-       🔔 NOTIFICATION (ADDED ONLY)
+       🔔 NOTIFICATION (FIXED – SCHEMA MATCHING)
     ===================================================== */
 
     const notificationMessage =
@@ -1673,33 +1672,28 @@ export const updateReportStatus = async (req, res) => {
         ? "Your account has been blocked due to a reported violation."
         : "A report against your account was reviewed and rejected.";
 
-    // 🔔 Save notification in DB
-    await NotificationModel.create({
-      userId: report.reportedUser,
+    // ✅ SAVE NOTIFICATION IN DB
+    const savedNotification = await NotificationModel.create({
+      user: report.reportedUser,
+      title: "Report Update",
       message: notificationMessage,
-      type: "report-status-update",
-      fromUser: req.userId || null, // admin
+      read: false,
     });
 
-    // 📱 Expo Push
-    if (updatedUser?.expoPushToken) {
+    // 🔴 SOCKET NOTIFICATION
+    const io = req.app.get("io");
+    io?.to(String(report.reportedUser)).emit(
+      "notification",
+      savedNotification
+    );
+
+    // 📱 EXPO PUSH
+    if (updatedUser?.expoToken) {
       sendExpoPush(
-        updatedUser.expoPushToken,
+        updatedUser.expoToken,
         "Report Update",
         notificationMessage
       ).catch(() => {});
-    }
-
-    // 🔴 Socket
-    const io = req.app.get("io");
-    if (io) {
-      io.to(String(report.reportedUser)).emit("newNotification", {
-        title: "Report Update",
-        message: notificationMessage,
-        type: "report-status-update",
-        reportId,
-        createdAt: new Date(),
-      });
     }
 
     /* =====================================================
@@ -1716,6 +1710,7 @@ export const updateReportStatus = async (req, res) => {
       user: updatedUser,
       userStatus: updatedUser?.adminApprovel,
     });
+
   } catch (err) {
     console.error("Error in updateReportStatus:", err);
     return res.status(500).json({
@@ -1725,6 +1720,7 @@ export const updateReportStatus = async (req, res) => {
     });
   }
 };
+
 
 
 
@@ -1787,12 +1783,11 @@ export const updateUserStatus = async (req, res) => {
   const { id } = req.params;
   const { adminApprovel } = req.body;
 
-  // Validation
-  const allowedStatus = ["approved", "pending", "reject"];
+  const allowedStatus = ['approved', 'pending', 'reject'];
   if (!allowedStatus.includes(adminApprovel)) {
     return res.status(400).json({
       success: false,
-      message: "Invalid status value. Allowed: approved, pending, reject",
+      message: 'Invalid status value. Allowed: approved, pending, reject'
     });
   }
 
@@ -1806,67 +1801,64 @@ export const updateUserStatus = async (req, res) => {
     if (!updatedUser) {
       return res.status(404).json({
         success: false,
-        message: "User not found",
+        message: 'User not found'
       });
     }
 
     /* =====================================================
-       🔔 NOTIFICATION (ADDED ONLY)
+       🔔 NOTIFICATION (SAME PATTERN AS createReport)
     ===================================================== */
+    try {
+      const io = global.io;
 
-    const statusMessageMap = {
-      approved: "Your profile has been approved by admin.",
-      pending: "Your profile status has been set to pending.",
-      reject: "Your profile has been rejected by admin.",
-    };
+      const statusMessageMap = {
+        approved: "Your profile has been approved by admin.",
+        pending: "Your profile status has been set to pending.",
+        reject: "Your profile has been rejected by admin."
+      };
 
-    const notificationMessage = statusMessageMap[adminApprovel];
+      const message =
+        statusMessageMap[adminApprovel] ||
+        "Your profile status has been updated.";
 
-    // 🔔 Save notification in DB
-    await NotificationModel.create({
-      userId: id,
-      message: notificationMessage,
-      type: "admin-status-update",
-      fromUser: req.userId || null, // admin
-    });
-
-    // 📱 Expo Push
-    if (updatedUser?.expoPushToken) {
-      sendExpoPush(
-        updatedUser.expoPushToken,
-        "Profile Status Update",
-        notificationMessage
-      ).catch(() => {});
-    }
-
-    // 🔴 Socket
-    const io = req.app.get("io");
-    if (io) {
-      io.to(String(id)).emit("newNotification", {
+      const notification = await NotificationModel.create({
+        user: updatedUser._id,
+        userModel: "Register",
         title: "Profile Status Update",
-        message: notificationMessage,
-        type: "admin-status-update",
-        createdAt: new Date(),
+        message
       });
+
+      io?.to(String(updatedUser._id)).emit("notification", notification);
+
+      if (updatedUser.expoToken) {
+        await sendExpoPush(
+          updatedUser.expoToken,
+          "Profile Status Update",
+          message
+        );
+      }
+    } catch (notifyErr) {
+      console.error("⚠️ Notification error (ignored):", notifyErr.message);
     }
+    /* ===================================================== */
 
-    /* =====================================================
-       ✅ RESPONSE — SAME (NO CHANGE)
-    ===================================================== */
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "User verification status updated",
-      user: updatedUser,
+      message: 'User verification status updated',
+      user: updatedUser
     });
+
   } catch (error) {
-    console.error("Error updating user status:", error.message);
-    res.status(500).json({
+    console.error('Error updating user status:', error.message);
+    return res.status(500).json({
       success: false,
-      message: "Server Error",
+      message: 'Server Error'
     });
   }
 };
+
+
+
 
 
 
