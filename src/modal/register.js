@@ -82,7 +82,7 @@ weight:{type:Number},
 
 
       // 🔮 Astro Details
-  manglik: { type: String, enum: ['Yes', 'No', 'Don’t Know'] },
+  manglik: { type: String, enum: ['Yes','yes','no', 'No', 'Don’t Know'] },
   timeOfBirth: { type: String },
   cityOfBirth: { type: String },
 

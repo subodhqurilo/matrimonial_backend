@@ -9,10 +9,9 @@ import cloudinary from "cloudinary";
 import { authenticateUser } from "../middlewares/authMiddleware.js";
 import { sendEmailOTP } from "../utils/sendEmailOtp.js";
 import AdminOtp from "../modal/AdminOtpModel.js";
-import Admin from "../modal/adminModal.js";
-
 import NotificationModel from "../modal/Notification.js";
 import { sendExpoPush } from "../utils/expoPush.js"; // expo push function
+import AdminModel from "../modal/adminModal.js";
 
 
 
@@ -323,7 +322,10 @@ export const registerDetails = async (req, res) => {
 
     const user = await RegisterModel.findById(userId);
     if (!user) {
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
     }
 
     const updateData = {
@@ -342,14 +344,12 @@ export const registerDetails = async (req, res) => {
     );
 
     /* =====================================================
-       🔔 ADMIN NOTIFICATION (FIXED & SAFE)
-       SAME PATTERN AS createReport
+       🔔 ADMIN NOTIFICATION (SAFE – WILL NOT BREAK API)
     ===================================================== */
-
     try {
       const io = global.io;
 
-      // 🔥 REAL ADMINS (not hardcoded)
+      // Same pattern as createReport (WORKING)
       const admins = await AdminModel.find({ role: "Admin" });
 
       for (const admin of admins) {
@@ -360,11 +360,10 @@ export const registerDetails = async (req, res) => {
           message: "A user has submitted profile details and Aadhaar documents."
         });
 
-        io?.to(String(admin._id)).emit(
-          "notification",
-          adminNotification
-        );
+        // socket
+        io?.to(String(admin._id)).emit("notification", adminNotification);
 
+        // push
         if (admin.expoToken) {
           await sendExpoPush(
             admin.expoToken,
@@ -374,10 +373,9 @@ export const registerDetails = async (req, res) => {
         }
       }
     } catch (notifyErr) {
-      // 🔥 notification fail ho bhi jaye → API NEVER FAIL
-      console.error("⚠️ Admin notification error (ignored):", notifyErr.message);
+      // ❗ notification error kabhi API fail nahi karega
+      console.error("⚠️ Admin notification failed:", notifyErr.message);
     }
-
     /* ===================================================== */
 
     return res.status(200).json({
@@ -395,6 +393,7 @@ export const registerDetails = async (req, res) => {
     });
   }
 };
+
 
 
 

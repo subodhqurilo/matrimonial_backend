@@ -1019,7 +1019,7 @@ export const updateUserById = async (req, res) => {
     }
 
     /* =====================================================
-       🔔 NOTIFICATION (FIXED – SCHEMA MATCHING)
+       🔔 NOTIFICATION (✅ FIXED)
     ===================================================== */
 
     let notificationMessage = "Your profile information has been updated.";
@@ -1036,16 +1036,17 @@ export const updateUserById = async (req, res) => {
         statusMap[filteredUpdate.adminApprovel] || notificationMessage;
     }
 
-    // ✅ SAVE NOTIFICATION IN DB
+    // ✅ REQUIRED FIELDS: user + userModel
     const savedNotification = await NotificationModel.create({
       user: updatedUser._id,
+      userModel: "Register",   // 🔥 THIS WAS MISSING
       title: "Profile Update",
       message: notificationMessage,
       read: false,
     });
 
-    // 🔴 SOCKET NOTIFICATION
-    const io = req.app.get("io");
+    // 🔴 SOCKET
+    const io = req.app.get("io") || global.io;
     io?.to(String(updatedUser._id)).emit("notification", savedNotification);
 
     // 📱 PUSH (EXPO)
@@ -1058,7 +1059,7 @@ export const updateUserById = async (req, res) => {
     }
 
     /* ------------------------------------
-       🎨 CLEAN RESPONSE (UNCHANGED)
+       🎨 RESPONSE (UNCHANGED)
     ------------------------------------ */
     const formatted = {
       id: updatedUser._id,
@@ -1088,6 +1089,7 @@ export const updateUserById = async (req, res) => {
     });
   }
 };
+
 
 
 
@@ -1601,12 +1603,14 @@ export const getReportedContent = async (req, res) => {
 export const updateReportStatus = async (req, res) => {
   try {
     const { reportId } = req.params;
-    let { status } = req.body; // "approved" or "rejected"
+    let { status } = req.body; // approved | rejected
+
+    /* ================= VALIDATION ================= */
 
     if (!status) {
       return res.status(400).json({
         success: false,
-        message: "Status is required.",
+        message: "Status is required",
       });
     }
 
@@ -1615,7 +1619,7 @@ export const updateReportStatus = async (req, res) => {
     if (!["approved", "rejected"].includes(status)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid status. Use 'approved' or 'rejected'.",
+        message: "Invalid status. Use approved or rejected",
       });
     }
 
@@ -1626,6 +1630,8 @@ export const updateReportStatus = async (req, res) => {
       });
     }
 
+    /* ================= FETCH REPORT ================= */
+
     const report = await ReportModel.findById(reportId);
     if (!report) {
       return res.status(404).json({
@@ -1634,12 +1640,16 @@ export const updateReportStatus = async (req, res) => {
       });
     }
 
-    let updatedUser = null;
+    const io = global.io;
+
+    let updatedReportedUser = null;
     let finalReportStatus = null;
 
-    // 🔥 APPROVED → BLOCK USER + BLOCK REPORT
+    /* ================= ADMIN ACTION ================= */
+
     if (status === "approved") {
-      updatedUser = await RegisterModel.findByIdAndUpdate(
+      // Report approved → reported user BLOCK
+      updatedReportedUser = await RegisterModel.findByIdAndUpdate(
         report.reportedUser,
         { adminApprovel: "blocked" },
         { new: true }
@@ -1648,9 +1658,9 @@ export const updateReportStatus = async (req, res) => {
       finalReportStatus = "blocked";
     }
 
-    // 🔥 REJECTED → APPROVE USER + REPORT ALSO APPROVED
     if (status === "rejected") {
-      updatedUser = await RegisterModel.findByIdAndUpdate(
+      // Report rejected → reported user remains APPROVED
+      updatedReportedUser = await RegisterModel.findByIdAndUpdate(
         report.reportedUser,
         { adminApprovel: "approved" },
         { new: true }
@@ -1659,67 +1669,94 @@ export const updateReportStatus = async (req, res) => {
       finalReportStatus = "approved";
     }
 
-    // Save final report status
     report.status = finalReportStatus;
     await report.save();
 
     /* =====================================================
-       🔔 NOTIFICATION (FIXED – SCHEMA MATCHING)
+       🔔 1️⃣ NOTIFICATION → REPORTER (jisne report ki)
     ===================================================== */
 
-    const notificationMessage =
-      finalReportStatus === "blocked"
-        ? "Your account has been blocked due to a reported violation."
-        : "A report against your account was reviewed and rejected.";
+    const reporterMessage =
+      status === "approved"
+        ? "Your report has been accepted. Appropriate action has been taken."
+        : "Your report has been reviewed and rejected.";
 
-    // ✅ SAVE NOTIFICATION IN DB
-    const savedNotification = await NotificationModel.create({
-      user: report.reportedUser,
+    const reporterNotification = await NotificationModel.create({
+      user: report.reporter,
+      userModel: "Register", // ✅ REQUIRED
       title: "Report Update",
-      message: notificationMessage,
+      message: reporterMessage,
       read: false,
     });
 
-    // 🔴 SOCKET NOTIFICATION
-    const io = req.app.get("io");
-    io?.to(String(report.reportedUser)).emit(
+    io?.to(String(report.reporter)).emit(
       "notification",
-      savedNotification
+      reporterNotification
     );
 
-    // 📱 EXPO PUSH
-    if (updatedUser?.expoToken) {
+    const reporterUser = await RegisterModel.findById(report.reporter);
+    if (reporterUser?.expoToken) {
       sendExpoPush(
-        updatedUser.expoToken,
+        reporterUser.expoToken,
         "Report Update",
-        notificationMessage
+        reporterMessage
       ).catch(() => {});
     }
 
     /* =====================================================
-       ⚠️ RESPONSE — SAME (NO CHANGE)
+       🔔 2️⃣ NOTIFICATION → REPORTED USER
     ===================================================== */
+
+    const reportedUserMessage =
+      finalReportStatus === "blocked"
+        ? "Your account has been blocked due to a reported violation."
+        : "A report against your account was reviewed and no action was taken.";
+
+    const reportedUserNotification = await NotificationModel.create({
+      user: report.reportedUser,
+      userModel: "Register", // ✅ REQUIRED
+      title: "Account Update",
+      message: reportedUserMessage,
+      read: false,
+    });
+
+    io?.to(String(report.reportedUser)).emit(
+      "notification",
+      reportedUserNotification
+    );
+
+    if (updatedReportedUser?.expoToken) {
+      sendExpoPush(
+        updatedReportedUser.expoToken,
+        "Account Update",
+        reportedUserMessage
+      ).catch(() => {});
+    }
+
+    /* ================= FINAL RESPONSE ================= */
 
     return res.status(200).json({
       success: true,
       message:
-        finalReportStatus === "blocked"
-          ? "Report approved — User BLOCKED"
-          : "Report rejected — User APPROVED",
-      report,
-      user: updatedUser,
-      userStatus: updatedUser?.adminApprovel,
+        status === "approved"
+          ? "Report approved and user blocked"
+          : "Report rejected and no action taken",
+      reportStatus: finalReportStatus,
+      reportedUserStatus: updatedReportedUser?.adminApprovel,
     });
 
-  } catch (err) {
-    console.error("Error in updateReportStatus:", err);
+  } catch (error) {
+    console.error("updateReportStatus error:", error);
     return res.status(500).json({
       success: false,
-      message: "Server error while updating report.",
-      error: err.message,
+      message: "Server error while updating report",
+      error: error.message,
     });
   }
 };
+
+
+
 
 
 
