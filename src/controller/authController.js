@@ -9,9 +9,8 @@ import cloudinary from "cloudinary";
 import { authenticateUser } from "../middlewares/authMiddleware.js";
 import { sendEmailOTP } from "../utils/sendEmailOtp.js";
 import AdminOtp from "../modal/AdminOtpModel.js";
-import NotificationModel from "../modal/Notification.js";
-import { sendExpoPush } from "../utils/expoPush.js"; // expo push function
-import AdminModel from "../modal/adminModal.js";
+import Admin from "../modal/adminModal.js";
+
 
 
 
@@ -294,16 +293,19 @@ export const registerDetails = async (req, res) => {
     const adhaarFront = req.files?.adhaarCardFrontImage?.[0]?.path;
     const adhaarBack = req.files?.adhaarCardBackImage?.[0]?.path;
 
+    // Convert string values from Postman into Boolean
     const toBoolean = (val) => {
       if (val === "true" || val === true || val === "Yes") return true;
       if (val === "false" || val === false || val === "No") return false;
       return val;
     };
 
+    // Fix array issues from React Native
     if (Array.isArray(req.body.maritalStatus)) {
       req.body.maritalStatus = req.body.maritalStatus[0];
     }
 
+    // Convert required Boolean fields
     const booleanFields = [
       "willingToMarryOtherCaste",
       "isChildrenLivingWithYou",
@@ -320,14 +322,13 @@ export const registerDetails = async (req, res) => {
       }
     });
 
+    // Fetch old user
     const user = await RegisterModel.findById(userId);
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found"
-      });
+      return res.status(404).json({ success: false, message: "User not found" });
     }
 
+    // Build update object
     const updateData = {
       ...req.body,
       profileImage: profileImage || user.profileImage,
@@ -337,46 +338,12 @@ export const registerDetails = async (req, res) => {
       }
     };
 
+    // Save updated user
     const updatedUser = await RegisterModel.findByIdAndUpdate(
       userId,
       { $set: updateData },
       { new: true }
     );
-
-    /* =====================================================
-       🔔 ADMIN NOTIFICATION (SAFE – WILL NOT BREAK API)
-    ===================================================== */
-    try {
-      const io = global.io;
-
-      // Same pattern as createReport (WORKING)
-      const admins = await AdminModel.find({ role: "Admin" });
-
-      for (const admin of admins) {
-        const adminNotification = await NotificationModel.create({
-          user: admin._id,
-          userModel: "Admin",
-          title: "Profile verification request",
-          message: "A user has submitted profile details and Aadhaar documents."
-        });
-
-        // socket
-        io?.to(String(admin._id)).emit("notification", adminNotification);
-
-        // push
-        if (admin.expoToken) {
-          await sendExpoPush(
-            admin.expoToken,
-            "Profile verification request",
-            "A user has submitted profile details and Aadhaar documents."
-          );
-        }
-      }
-    } catch (notifyErr) {
-      // ❗ notification error kabhi API fail nahi karega
-      console.error("⚠️ Admin notification failed:", notifyErr.message);
-    }
-    /* ===================================================== */
 
     return res.status(200).json({
       success: true,
@@ -386,18 +353,13 @@ export const registerDetails = async (req, res) => {
 
   } catch (error) {
     console.error("RegisterDetails Error:", error);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       message: "Server error",
       error: error.message,
     });
   }
 };
-
-
-
-
-
 
 
 

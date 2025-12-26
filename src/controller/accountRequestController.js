@@ -78,6 +78,7 @@ export const requestAccount = async (req, res) => {
   }
 
   try {
+    // 🔍 Check if any request already exists (both directions)
     const existing = await AccountRequestModel.findOne({
       $or: [
         { requesterId, receiverId },
@@ -95,6 +96,7 @@ export const requestAccount = async (req, res) => {
       });
     }
 
+    // ➕ Create new request
     const newRequest = new AccountRequestModel({
       requesterId,
       receiverId,
@@ -104,42 +106,49 @@ export const requestAccount = async (req, res) => {
     await newRequest.save();
 
     /* =====================================================
-       🔔 NOTIFICATION SECTION (ONLY ADDITION)
-       - DB  → BOTH
-       - SOCKET → BOTH
-       - PUSH → RECEIVER ONLY
+       🔔 NOTIFICATIONS (SAFE + FIXED)
+       - RECEIVER → "New request"
+       - REQUESTER → "Request sent"
     ===================================================== */
 
     const io = global.io;
 
-    const receiverUser = await RegisterModel.findById(receiverId);
-
-    /* ---------- DB + SOCKET → REQUESTER ---------- */
-    const requesterNotification = await NotificationModel.create({
-      user: requesterId,
-      title: "Request Sent",
-      message: "Your account request has been sent successfully."
-    });
-
-    io?.to(String(requesterId)).emit("notification", requesterNotification);
-
-    /* ---------- DB + SOCKET → RECEIVER ---------- */
+    /* ---------- RECEIVER NOTIFICATION ---------- */
     const receiverNotification = await NotificationModel.create({
       user: receiverId,
-      title: "New Request Received",
-      message: "You have received a new account request."
+      userModel: "Register", // ✅ REQUIRED
+      title: "New Account Request",
+      message: "You have received a new account request.",
+      read: false
     });
 
-    io?.to(String(receiverId)).emit("notification", receiverNotification);
+    io?.to(String(receiverId)).emit(
+      "notification",
+      receiverNotification
+    );
 
-    /* ---------- PUSH → RECEIVER ONLY ---------- */
+    const receiverUser = await RegisterModel.findById(receiverId);
     if (receiverUser?.expoToken) {
-      await sendExpoPush(
+      sendExpoPush(
         receiverUser.expoToken,
-        "New Request Received",
+        "New Account Request",
         "You have received a new account request."
-      );
+      ).catch(() => {});
     }
+
+    /* ---------- REQUESTER NOTIFICATION ---------- */
+    const requesterNotification = await NotificationModel.create({
+      user: requesterId,
+      userModel: "Register", // ✅ REQUIRED
+      title: "Request Sent",
+      message: "Your account request has been sent successfully.",
+      read: false
+    });
+
+    io?.to(String(requesterId)).emit(
+      "notification",
+      requesterNotification
+    );
 
     /* ===================================================== */
 
@@ -165,11 +174,12 @@ export const requestAccount = async (req, res) => {
 
 
 
+
 export const updateAccountRequestStatus = async (req, res) => {
   const userId = req.userId; // Logged-in user (receiver)
   const { requestId, status } = req.body;
 
-  if (!["accepted", "rejected"].includes(status)) {
+  if (!['accepted', 'rejected'].includes(status)) {
     return res.status(400).json({
       success: false,
       message: "Invalid status"
@@ -215,24 +225,13 @@ export const updateAccountRequestStatus = async (req, res) => {
     }
 
     /* =====================================================
-       🔔 NOTIFICATION SECTION (COMPLETE & FIXED)
-       RULE:
-       - DB     → BOTH USERS
-       - SOCKET → BOTH USERS
-       - PUSH   → REQUESTER ONLY
+       🔔 NOTIFICATIONS (FIXED – BOTH USERS)
     ===================================================== */
 
     const io = global.io;
 
     const requesterId = request.requesterId; // jisne request bheji
     const receiverId = request.receiverId;   // jisne accept/reject ki
-
-    const requesterUser = await RegisterModel.findById(requesterId);
-
-    const title =
-      status === "accepted"
-        ? "Request Accepted"
-        : "Request Rejected";
 
     const requesterMessage =
       status === "accepted"
@@ -244,36 +243,42 @@ export const updateAccountRequestStatus = async (req, res) => {
         ? "You accepted the account request."
         : "You rejected the account request.";
 
-    /* ---------- DB → REQUESTER ---------- */
+    /* ---------- 🔔 REQUESTER NOTIFICATION ---------- */
     const requesterNotification = await NotificationModel.create({
       user: requesterId,
-      title,
+      userModel: "Register", // ✅ REQUIRED
+      title: "Account Request Update",
       message: requesterMessage,
       read: false
     });
 
-    /* ---------- DB → RECEIVER ---------- */
+    io?.to(String(requesterId)).emit(
+      "notification",
+      requesterNotification
+    );
+
+    const requesterUser = await RegisterModel.findById(requesterId);
+    if (requesterUser?.expoToken) {
+      sendExpoPush(
+        requesterUser.expoToken,
+        "Account Request Update",
+        requesterMessage
+      ).catch(() => {});
+    }
+
+    /* ---------- 🔔 RECEIVER NOTIFICATION ---------- */
     const receiverNotification = await NotificationModel.create({
       user: receiverId,
-      title,
+      userModel: "Register", // ✅ REQUIRED
+      title: "Account Request Update",
       message: receiverMessage,
       read: false
     });
 
-    /* ---------- SOCKET → REQUESTER ---------- */
-    io?.to(String(requesterId)).emit("notification", requesterNotification);
-
-    /* ---------- SOCKET → RECEIVER ---------- */
-    io?.to(String(receiverId)).emit("notification", receiverNotification);
-
-    /* ---------- PUSH → REQUESTER ONLY ---------- */
-    if (requesterUser?.expoToken) {
-      await sendExpoPush(
-        requesterUser.expoToken,
-        title,
-        requesterMessage
-      );
-    }
+    io?.to(String(receiverId)).emit(
+      "notification",
+      receiverNotification
+    );
 
     /* ===================================================== */
 
@@ -292,23 +297,6 @@ export const updateAccountRequestStatus = async (req, res) => {
     });
   }
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -405,12 +393,6 @@ export const getReceivedRequests = async (req, res) => {
     });
   }
 };
-
-
-
-
-
-
 
 
 
@@ -708,126 +690,43 @@ export const deleteAccountRequest = async (req, res) => {
     if (!requestId) {
       return res.status(400).json({
         success: false,
-        message: "RequestId is required",
+        message: "RequestId is required"
       });
     }
 
-    /* =====================================================
-       🔐 CHECK AUTHORIZATION
-    ===================================================== */
+    // Check if request exists & belongs to the user (sender or receiver)
     const request = await AccountRequestModel.findOne({
       _id: requestId,
-      $or: [{ requesterId: userId }, { receiverId: userId }],
+      $or: [{ requesterId: userId }, { receiverId: userId }]
     });
 
     if (!request) {
       return res.status(404).json({
         success: false,
-        message: "Request not found or unauthorized",
+        message: "Request not found or unauthorized"
       });
     }
 
-    /* =====================================================
-       👤 IDENTIFY USERS
-    ===================================================== */
-    const requesterId = request.requesterId.toString();
-    const receiverId = request.receiverId.toString();
-
-    const deletedByRequester = userId === requesterId;
-
-    /* =====================================================
-       🗑️ DELETE REQUEST
-    ===================================================== */
+    // Delete request
     await AccountRequestModel.findByIdAndDelete(requestId);
 
-    /* =====================================================
-       🔔 FETCH BOTH USERS
-    ===================================================== */
-    const requesterUser = await RegisterModel.findById(requesterId).select(
-      "expoPushToken fullName"
-    );
-    const receiverUser = await RegisterModel.findById(receiverId).select(
-      "expoPushToken fullName"
-    );
-
-    /* =====================================================
-       📝 NOTIFICATION CONTENT
-    ===================================================== */
-    const title = "Account Request Update";
-
-    const msgForRequester = deletedByRequester
-      ? "You deleted the account request."
-      : "Your account request has been deleted.";
-
-    const msgForReceiver = deletedByRequester
-      ? "Your account request has been deleted."
-      : "You deleted the account request.";
-
-    /* =====================================================
-       📱 EXPO PUSH NOTIFICATIONS
-    ===================================================== */
-    if (requesterUser?.expoPushToken) {
-      sendExpoPush(
-        requesterUser.expoPushToken,
-        title,
-        msgForRequester
-      ).catch((err) =>
-        console.log("❌ Expo Push Error (Requester):", err)
-      );
-    }
-
-    if (receiverUser?.expoPushToken) {
-      sendExpoPush(
-        receiverUser.expoPushToken,
-        title,
-        msgForReceiver
-      ).catch((err) =>
-        console.log("❌ Expo Push Error (Receiver):", err)
-      );
-    }
-
-    /* =====================================================
-       🔴 SOCKET NOTIFICATIONS
-    ===================================================== */
-    const io = req.app.get("io");
-
-    if (io) {
-      io.to(String(requesterId)).emit("newNotification", {
-        title,
-        message: msgForRequester,
-        type: "request_deleted",
-        requestId,
-        actor: userId,
-        createdAt: new Date(),
-      });
-
-      io.to(String(receiverId)).emit("newNotification", {
-        title,
-        message: msgForReceiver,
-        type: "request_deleted",
-        requestId,
-        actor: userId,
-        createdAt: new Date(),
-      });
-    }
-
-    /* =====================================================
-       ✅ RESPONSE (UNCHANGED)
-    ===================================================== */
     return res.status(200).json({
       success: true,
       message: "Request deleted successfully",
-      deletedRequestId: requestId,
+      deletedRequestId: requestId
     });
   } catch (error) {
     console.error("❌ deleteAccountRequest Error:", error);
     return res.status(500).json({
       success: false,
       message: "Server error",
-      error: error.message,
+      error: error.message
     });
   }
 };
+
+
+
 
 
 
