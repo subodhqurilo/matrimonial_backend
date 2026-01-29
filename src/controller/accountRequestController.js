@@ -306,7 +306,7 @@ export const getReceivedRequests = async (req, res) => {
 
   try {
     // ---------------------- GET REQUESTS ----------------------
-    const requests = await AccountRequestModel.find({ receiverId: userId })
+    const requests = await AccountRequestModel.find({ receiverId: userId, status:"pending" })
       .populate({
         path: "requesterId",
         select: `
