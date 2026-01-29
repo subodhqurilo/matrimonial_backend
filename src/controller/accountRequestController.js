@@ -1,7 +1,7 @@
 import moment from "moment";
 import NotificationModel from "../modal/Notification.js";
 import { sendExpoPush } from "../utils/expoPush.js"; // expo push function
-
+import RegisterModel from "../modal/register.js";
 
 import { AccountRequestModel } from "../modal/accountRequestModel.js";
 
