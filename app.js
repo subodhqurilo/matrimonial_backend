@@ -27,17 +27,9 @@ app.use(cors({
   origin: process.env.CLIENT_URLS?.split(',') || [
     'http://localhost:3000',
     'http://localhost:3001',
-    'https://matro-br.vercel.app',
-    'https://matrimonial-backend-7ahc.onrender.com',
-    'https://matro-main-ev8s.vercel.app',
-    'https://matro-main4444-bgn8.vercel.app',
-    'https://matro-main4444-4wza.vercel.app',
-    'https://matrimonial-lq33.vercel.app',
-    'https://matro-main4444-oypd.vercel.app',
-    'https://matro-main4444-swb3.vercel.app',
-    'https://matrimonial-ency.vercel.app'
-
-
+    'https://matro-main4444-main.vercel.app',
+    'https://matrimonial-ency.vercel.app',
+    'https://matro-main4444-4wza.vercel.app'
   ],
   credentials: true, // Only this line added
 }));
