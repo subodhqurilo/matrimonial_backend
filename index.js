@@ -22,17 +22,9 @@ const io = new Server(server, {
       'http://localhost:3000',
       'http://localhost:3001',
       'http://localhost:5173',
-      'https://matro-main4444-4wza.vercel.app',
-      'https://matro-br.vercel.app',
-      'https://matro-main4444-ajhw.vercel.app',
-      'https://matrimonial-backend-7ahc.onrender.com',
-      'https://matro-main-ev8s.vercel.app',
-      'https://matro-main4444-bgn8.vercel.app',
-      'https://matrimonial-lq33.vercel.app',
-      'https://matro-main4444-oypd.vercel.app',
-      'https://matro-main4444-swb3.vercel.app',
-      'https://matrimonial-ency.vercel.app'
-
+      'https://matro-main4444-main.vercel.app',
+      'https://matrimonial-ency.vercel.app',
+      'https://matro-main4444-4wza.vercel.app'
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
