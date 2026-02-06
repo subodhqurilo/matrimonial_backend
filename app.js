@@ -29,7 +29,7 @@ app.use(cors({
     'http://localhost:3001',
     'https://matro-main4444-main.vercel.app',
     'https://matrimonial-ency.vercel.app',
-    'https://matro-main4444-4wza.vercel.app'
+    'https://matro-main4444-4wza.vercel.app',
     'https://matrimonial-main.vercel.app',
   ],
   credentials: true, // Only this line added
